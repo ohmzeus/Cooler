@@ -11,6 +11,9 @@ contract CoolerFactory {
     // Mapping to prevent duplicate coolers
     mapping(address => mapping(ERC20 => mapping(ERC20 => address))) private coolerFor;
 
+    // Mapping to query Coolers for Collateral-Debt pair
+    mapping(ERC20 => mapping(ERC20 => address[])) public coolersFor;
+
     /// @notice creates a new Escrow contract for collateral and debt tokens
     function generate (ERC20 collateral, ERC20 debt) external returns (address cooler) {
         // Return address if cooler exists
@@ -20,6 +23,7 @@ contract CoolerFactory {
         if (cooler == address(0)) {
             cooler = address(new Cooler(msg.sender, collateral, debt));
             coolerFor[msg.sender][collateral][debt] = cooler;
+            coolersFor[collateral][debt].push(cooler);
             created[cooler] = true;
         }
     }
