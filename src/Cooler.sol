@@ -19,7 +19,7 @@ contract Cooler {
     Request[] public requests;
     struct Request { // A loan begins with a borrow request. It specifies:
         uint256 amount; // the amount they want to borrow,
-        uint256 interest; // the percentage they will pay as interest,
+        uint256 interest; // the annualized percentage they will pay as interest,
         uint256 loanToCollateral; // the loan-to-collateral ratio they want,
         uint256 duration; // and the length of time until the loan defaults.
         bool active; // Any lender can clear an active loan request.
@@ -60,7 +60,7 @@ contract Cooler {
     /// @notice request a loan with given parameters
     /// @notice collateral is taken at time of request
     /// @param amount of debt tokens to borrow
-    /// @param interest to pay (% of 'amount')
+    /// @param interest to pay (annualized % of 'amount')
     /// @param loanToCollateral debt tokens per collateral token pledged
     /// @param duration of loan tenure in seconds
     /// @return reqID requests index
@@ -125,7 +125,7 @@ contract Cooler {
             revert NotRollable();
 
         uint256 newCollateral = collateralFor(loan.amount, req.loanToCollateral) - loan.collateral;
-        uint256 newDebt = interestFor(loan.amount, req.interest);
+        uint256 newDebt = interestFor(loan.amount, req.interest, req.duration);
 
         loan.amount += newDebt;
         loan.expiry += req.duration;
@@ -151,7 +151,7 @@ contract Cooler {
             revert Deactivated();
         else req.active = false;
 
-        uint256 interest = interestFor(req.amount, req.interest);
+        uint256 interest = interestFor(req.amount, req.interest, req.duration);
         uint256 collat = collateralFor(req.amount, req.loanToCollateral);
         uint256 expiration = block.timestamp + req.duration;
 
@@ -195,9 +195,10 @@ contract Cooler {
         return amount * decimals / loanToCollateral;
     }
 
-    /// @notice compute interest cost on amount at given rate
-    function interestFor(uint256 amount, uint256 rate) public pure returns (uint256) {
-        return amount * rate / decimals;
+    /// @notice compute interest cost on amount for duration at given annualized rate
+    function interestFor(uint256 amount, uint256 rate, uint256 duration) public pure returns (uint256) {
+        uint256 interest = rate * duration / 365 days;
+        return amount * interest / decimals;
     }
 
     /// @notice check if given loan is in default
