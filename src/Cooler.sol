@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "./lib/mininterfaces.sol";
+import "./Factory.sol";
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
 ///         for a specific user and debt-collateral pair.
@@ -35,6 +36,9 @@ contract Cooler {
         address lender; // and the lender's address.
     }
 
+    // Facilitates transfer of lender ownership to new address
+    mapping(uint256 => address) public approvals;
+
     // Immutables
 
     // This address owns the collateral in escrow.
@@ -43,6 +47,8 @@ contract Cooler {
     ERC20 public immutable collateral;
     // This token is lent.
     ERC20 public immutable debt;
+    // This contract created the Cooler
+    CoolerFactory public immutable factory;
 
     // This makes the code look prettier.
     uint256 private constant decimals = 1e18;
@@ -53,6 +59,7 @@ contract Cooler {
         owner = o;
         collateral = c;
         debt = d;
+        factory = CoolerFactory(msg.sender);
     }
 
     // Borrower
@@ -71,6 +78,7 @@ contract Cooler {
         uint256 duration
     ) external returns (uint256 reqID) {
         reqID = requests.length;
+        factory.newEvent(reqID, CoolerFactory.Events.Request);
         requests.push(
             Request(amount, interest, loanToCollateral, duration, true)
         );
@@ -81,6 +89,8 @@ contract Cooler {
     function rescind (uint256 reqID) external {
         if (msg.sender != owner) 
             revert OnlyApproved();
+
+        factory.newEvent(reqID, CoolerFactory.Events.Rescind);
 
         Request storage req = requests[reqID];
 
@@ -147,6 +157,8 @@ contract Cooler {
     function clear (uint256 reqID) external returns (uint256 loanID) {
         Request storage req = requests[reqID];
 
+        factory.newEvent(reqID, CoolerFactory.Events.Clear);
+
         if (!req.active) 
             revert Deactivated();
         else req.active = false;
@@ -186,6 +198,25 @@ contract Cooler {
 
         collateral.transfer(loan.lender, loan.collateral);
         return loan.collateral;
+    }
+
+    /// @notice approve transfer of loan ownership to new address
+    function approve (address to, uint256 loanID) external {
+        Loan memory loan = loans[loanID];
+
+        if (msg.sender != loan.lender)
+            revert OnlyApproved();
+
+        approvals[loanID] = to;
+    }
+
+    /// @notice execute approved transfer of loan ownership
+    function transfer (uint256 loanID) external {
+        if (msg.sender != approvals[loanID])
+            revert OnlyApproved();
+
+        approvals[loanID] = address(0);
+        loans[loanID].lender = msg.sender;
     }
 
     // Views

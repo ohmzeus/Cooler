@@ -2,9 +2,17 @@
 pragma solidity ^0.8.0;
 
 import "./Cooler.sol";
+import "./lib/ERC20.sol";
 
 /// @notice the Cooler Factory creates new Cooler escrow contracts
 contract CoolerFactory {
+    // A global event when a loan request is created
+    event Request(address cooler, address collateral, address debt, uint256 reqID);
+    // A global event when a loan request is rescinded
+    event Rescind(address cooler, uint256 reqID);
+    // A global event when a loan request is cleared
+    event Clear(address cooler, uint256 reqID);
+
     // Mapping to validate deployed coolers
     mapping(address => bool) public created;
 
@@ -26,5 +34,22 @@ contract CoolerFactory {
             coolersFor[collateral][debt].push(cooler);
             created[cooler] = true;
         }
+    }
+
+    enum Events {Request, Rescind, Clear}
+
+    /// @notice emit an event each time a request is interacted with on a Cooler
+    function newEvent (uint256 id, Events ev) external {
+        require (created[msg.sender], "Only Created");
+
+        if (ev == Events.Clear) emit Clear(msg.sender, id);
+        else if (ev == Events.Rescind) emit Rescind(msg.sender, id);  
+        else if (ev == Events.Request)
+            emit Request(
+                msg.sender, 
+                address(Cooler(msg.sender).collateral()), 
+                address(Cooler(msg.sender).debt()), 
+                id
+            );
     }
 }
