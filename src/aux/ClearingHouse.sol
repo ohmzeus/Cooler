@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "../Factory.sol";
+import "../lib/mininterfaces.sol";
 
 contract ClearingHouse {
     // Errors
