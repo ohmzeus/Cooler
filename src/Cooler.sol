@@ -70,7 +70,7 @@ contract Cooler {
     /// @param interest to pay (annualized % of 'amount')
     /// @param loanToCollateral debt tokens per collateral token pledged
     /// @param duration of loan tenure in seconds
-    /// @return reqID requests index
+    /// @param reqID index of request in requests[]
     function request (
         uint256 amount,
         uint256 interest,
@@ -86,6 +86,7 @@ contract Cooler {
     }
 
     /// @notice cancel a loan request and return collateral
+    /// @param reqID index of request in requests[]
     function rescind (uint256 reqID) external {
         if (msg.sender != owner) 
             revert OnlyApproved();
@@ -102,7 +103,7 @@ contract Cooler {
     }
 
     /// @notice repay a loan to recoup collateral
-    /// @param loanID index of loan to repay
+    /// @param loanID index of loan in loans[]
     /// @param repaid debt tokens to repay
     function repay (uint256 loanID, uint256 repaid) external {
         Loan storage loan = loans[loanID];
@@ -124,6 +125,7 @@ contract Cooler {
 
     /// @notice roll a loan over
     /// @notice uses terms from request
+    /// @param loanID index of loan in loans[]
     function roll (uint256 loanID) external {
         Loan storage loan = loans[loanID];
         Request memory req = loan.request;
@@ -145,6 +147,7 @@ contract Cooler {
     }
 
     /// @notice delegate voting power on collateral
+    /// @param to address to delegate
     function delegate (address to) external {
         if (msg.sender != owner) 
             revert OnlyApproved();
@@ -154,6 +157,8 @@ contract Cooler {
     // Lender
 
     /// @notice fill a requested loan as a lender
+    /// @param reqID index of request in requests[]
+    /// @param loanID index of loan in loans[]
     function clear (uint256 reqID) external returns (uint256 loanID) {
         Request storage req = requests[reqID];
 
@@ -175,6 +180,7 @@ contract Cooler {
     }
 
     /// @notice change 'rollable' status of loan
+    /// @param loanID index of loan in loans[]
     /// @return bool new 'rollable' status
     function toggleRoll(uint256 loanID) external returns (bool) {
         Loan storage loan = loans[loanID];
@@ -187,7 +193,7 @@ contract Cooler {
     }
 
     /// @notice send collateral to lender upon default
-    /// @param loanID of defaulted loan
+    /// @param loanID index of loan in loans[]
     /// @return uint256 collateral amount
     function defaulted (uint256 loanID) external returns (uint256) {
         Loan memory loan = loans[loanID];
@@ -201,6 +207,8 @@ contract Cooler {
     }
 
     /// @notice approve transfer of loan ownership to new address
+    /// @param to address to approve
+    /// @param loanID index of loan in loans[]
     function approve (address to, uint256 loanID) external {
         Loan memory loan = loans[loanID];
 
@@ -211,6 +219,7 @@ contract Cooler {
     }
 
     /// @notice execute approved transfer of loan ownership
+    /// @param loanID index of loan in loans[]
     function transfer (uint256 loanID) external {
         if (msg.sender != approvals[loanID])
             revert OnlyApproved();
@@ -222,22 +231,32 @@ contract Cooler {
     // Views
 
     /// @notice compute collateral needed for loan amount at given loan to collateral ratio
+    /// @param amount of collateral tokens
+    /// @param loanToCollateral ratio for loan
     function collateralFor(uint256 amount, uint256 loanToCollateral) public pure returns (uint256) {
         return amount * decimals / loanToCollateral;
     }
 
     /// @notice compute interest cost on amount for duration at given annualized rate
+    /// @param amount of debt tokens
+    /// @param rate of interest (annualized)
+    /// @param duration of loan in seconds
+    /// @return interest as a number of debt tokens
     function interestFor(uint256 amount, uint256 rate, uint256 duration) public pure returns (uint256) {
         uint256 interest = rate * duration / 365 days;
         return amount * interest / decimals;
     }
 
     /// @notice check if given loan is in default
+    /// @param loanID index of loan in loans[]
+    /// @return defaulted status
     function isDefaulted(uint256 loanID) external view returns (bool) {
         return block.timestamp > loans[loanID].expiry;
     }
 
     /// @notice check if given request is active
+    /// @param reqID index of request in requests[]
+    /// @return active status
     function isActive(uint256 reqID) external view returns (bool) {
         return requests[reqID].active;
     }
