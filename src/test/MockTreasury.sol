@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../lib/ERC20.sol";
 
+/// @dev    NOTE this is a testing contract and should NOT be used in prod.
 contract Treasury {
     function deposit(address token, uint amount, uint value) external {
         amount = amount * value / value;
