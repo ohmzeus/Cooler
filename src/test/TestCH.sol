@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "./TestFactory.sol";
 
+/// @dev    NOTE this is a testing contract and should NOT be used in prod.
 contract ClearingHouse {
     // Errors
 
@@ -17,20 +18,21 @@ contract ClearingHouse {
 
     address public operator;
     address public overseer;
+    address public pendingOperator;
     address public pendingOverseer;
 
     // Relevant Contracts
 
-    ERC20 public dai;
-    ERC20 public gOHM;
-    address public treasury;
-    CoolerFactory public factory;
+    ERC20 public immutable dai;
+    ERC20 public immutable gOHM;
+    address public immutable treasury;
+    CoolerFactory public immutable factory;
 
     // Parameter Bounds
 
-    uint256 public minimumInterest = 2e16; // 2%
-    uint256 public maxLTC = 2_500 * 1e18; // 2,500
-    uint256 public maxDuration = 365 days; // 1 year
+    uint256 public constant minimumInterest = 2e16; // 2%
+    uint256 public constant maxLTC = 2_500 * 1e18; // 2,500
+    uint256 public constant maxDuration = 365 days; // 1 year
 
     constructor (
         address oper, 
@@ -38,7 +40,8 @@ contract ClearingHouse {
         ERC20 g, 
         ERC20 d, 
         CoolerFactory f, 
-        address t
+        address t,
+        uint256[] memory b
     ) {
         operator = oper;
         overseer = over;
@@ -46,6 +49,7 @@ contract ClearingHouse {
         dai = d;
         factory = f;
         treasury = t;
+        budget = b;
     }
 
     // Operation
@@ -53,7 +57,8 @@ contract ClearingHouse {
     /// @notice clear a requested loan
     /// @param cooler contract requesting loan
     /// @param id of loan in escrow contract
-    function clear (Cooler cooler, uint256 id) external returns (uint256) {
+    /// @param time static timestamp for testing
+    function clear (Cooler cooler, uint256 id, uint256 time) external returns (uint256) {
         if (msg.sender != operator) 
             revert OnlyApproved();
 
@@ -80,7 +85,36 @@ contract ClearingHouse {
 
         // Clear loan
         dai.approve(address(cooler), amount);
-        return cooler.clear(id);
+        return cooler.clear(id, time);
+    }
+
+    /// @notice toggle 'rollable' status of a loan
+    function toggleRoll(Cooler cooler, uint256 loanID) external {
+        if (msg.sender != operator) 
+            revert OnlyApproved();
+
+        cooler.toggleRoll(loanID);
+    }
+
+    // Oversight
+
+    // Funding params
+    uint256[] public budget;
+    uint256 public lastFunded;
+    uint256 public constant cadence = 7 days;
+
+    /// @notice pull funding using ITreasury interface
+    function fund (uint256 time) external {
+        if (lastFunded + cadence < time) {
+            for (uint256 i; i < budget.length; i++) {
+                if (budget[i] != 0) {
+                    lastFunded = lastFunded == 0 ? time : lastFunded + cadence;
+                    ITreasury(treasury).manage(address(dai), budget[i]);
+                    delete budget[i];
+                    break;
+                }
+            }
+        }
     }
 
     /// @notice return funds to treasury
@@ -92,35 +126,26 @@ contract ClearingHouse {
         token.transfer(treasury, amount);
     }
 
-    // Oversight
+    // Management
 
-    /// @notice pull funding from treasury
-    function fund (uint256 amount) external {
-        if (msg.sender != overseer) 
-            revert OnlyApproved();
-        ITreasury(treasury).manage(address(dai), amount);
-    }
-
-    /// @notice overseer can set a new operator
-    function setOperator (address newOperator) external {
-        if (msg.sender != overseer) 
-            revert OnlyApproved();
-        operator = newOperator;
-    }
-
-    /// @notice overseer can set a new overseer
+    /// @notice operator or overseer can set a new address
     /// @dev using a push/pull model for safety
-    function pushOverseer (address newOverseer) external {
-        if (msg.sender != overseer) 
-            revert OnlyApproved();
-        pendingOverseer = newOverseer;
+    function push (address newAddress) external {
+        if (msg.sender == overseer) 
+            pendingOverseer = newAddress;
+        else if (msg.sender == operator) 
+            pendingOperator = newAddress;
+        else revert OnlyApproved();
     }
 
-    /// @notice new overseer can pull role once pushed
-    function pullOverseer () external {
-        if (msg.sender != pendingOverseer) 
-            revert OnlyApproved();
-        overseer = pendingOverseer;
-        pendingOverseer = address(0);
+    /// @notice new operator or overseer can pull role once pushed
+    function pull () external {
+        if (msg.sender == pendingOverseer) {
+            overseer = pendingOverseer;
+            pendingOverseer = address(0);
+        } else if (msg.sender == pendingOperator) {
+            operator = pendingOperator;
+            pendingOperator = address(0);
+        } else revert OnlyApproved();
     }
 }
