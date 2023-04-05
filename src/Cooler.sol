@@ -145,7 +145,8 @@ contract Cooler {
         loan.expiry += req.duration;
         loan.collateral += newCollateral;
         
-        collateral.transferFrom(msg.sender, address(this), newCollateral);
+        if (newCollateral > 0)
+            collateral.transferFrom(msg.sender, address(this), newCollateral);
     }
 
     /// @notice delegate voting power on collateral
