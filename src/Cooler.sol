@@ -14,7 +14,6 @@ contract Cooler {
     error Default();
     error NoDefault();
     error NotRollable();
-    error ZeroCollateralReturned();
 
     // Data Structures
 
@@ -34,6 +33,7 @@ contract Cooler {
         uint256 repaid; // the amount of debt tokens repaid but unclaimed,
         uint256 collateral; // the amount of collateral pledged,
         uint256 expiry; // the time when the loan defaults,
+        bool rollable; // whether the loan can be rolled over,
         address lender; // and the lender's address.
     }
 
@@ -113,8 +113,6 @@ contract Cooler {
             revert Default();
         
         uint256 decollateralized = loan.collateral * repaid / loan.amount;
-        if (decollateralized == 0)
-            revert ZeroCollateralReturned();
 
         if (repaid > loan.amount) 
             repaid = loan.amount;
@@ -146,7 +144,7 @@ contract Cooler {
         if (block.timestamp > loan.expiry) 
             revert Default();
 
-        if (!loan.request.active)
+        if (!loan.rollable)
             revert NotRollable();
 
         uint256 newCollateral = collateralFor(loan.amount, req.loanToCollateral) - loan.collateral;
@@ -156,8 +154,7 @@ contract Cooler {
         loan.expiry += req.duration;
         loan.collateral += newCollateral;
         
-        if (newCollateral > 0)
-            collateral.transferFrom(msg.sender, address(this), newCollateral);
+        collateral.transferFrom(msg.sender, address(this), newCollateral);
     }
 
     /// @notice delegate voting power on collateral
@@ -188,28 +185,22 @@ contract Cooler {
 
         loanID = loans.length;
         loans.push(
-            Loan(req, req.amount + interest, collat, expiration, msg.sender)
+            Loan(req, req.amount + interest, collat, expiration, true, msg.sender)
         );
         debt.transferFrom(msg.sender, owner, req.amount);
     }
 
-    /// @notice provide terms for loan to roll over
+    /// @notice change 'rollable' status of loan
     /// @param loanID index of loan in loans[]
-    /// @param interest to pay (annualized % of 'amount')
-    /// @param loanToCollateral debt tokens per collateral token pledged
-    /// @param duration of loan tenure in seconds
-    function provideNewTermsForRoll (
-        uint256 loanID, 
-        uint256 interest,
-        uint256 loanToCollateral,
-        uint256 duration
-    ) external {
+    /// @return bool new 'rollable' status
+    function toggleRoll(uint256 loanID) external returns (bool) {
         Loan storage loan = loans[loanID];
 
         if (msg.sender != loan.lender)
             revert OnlyApproved();
 
-        loan.request = Request(loan.amount, interest, loanToCollateral, duration, true);
+        loan.rollable = !loan.rollable;
+        return loan.rollable;
     }
 
     /// @notice send collateral to lender upon default
