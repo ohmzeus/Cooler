@@ -14,6 +14,7 @@ contract Cooler {
     error Default();
     error NoDefault();
     error NotRollable();
+    error ZeroCollateralReturned();
 
     // Data Structures
 
@@ -112,6 +113,8 @@ contract Cooler {
             revert Default();
         
         uint256 decollateralized = loan.collateral * repaid / loan.amount;
+        if (decollateralized == 0)
+            revert ZeroCollateralReturned();
 
         if (repaid == loan.amount) delete loans[loanID];
         else {
