@@ -31,6 +31,7 @@ contract Cooler {
     struct Loan { // A request is converted to a loan when a lender clears it.
         Request request; // The terms of the loan are saved, along with:
         uint256 amount; // the amount of debt owed,
+        uint256 repaid; // the amount of debt tokens repaid but unclaimed,
         uint256 collateral; // the amount of collateral pledged,
         uint256 expiry; // the time when the loan defaults,
         address lender; // and the lender's address.
@@ -115,14 +116,24 @@ contract Cooler {
         if (decollateralized == 0)
             revert ZeroCollateralReturned();
 
-        if (repaid == loan.amount) delete loans[loanID];
-        else {
-            loan.amount -= repaid;
-            loan.collateral -= decollateralized;
-        }
+        if (repaid > loan.amount) 
+            repaid = loan.amount;
 
-        debt.transferFrom(msg.sender, loan.lender, repaid);
+        loan.amount -= repaid;
+        loan.repaid += repaid;
+        loan.collateral -= decollateralized;
+
+        debt.transferFrom(msg.sender, address(this), repaid);
         collateral.transfer(owner, decollateralized);
+    }
+
+    /// @notice claim debt tokens for lender
+    /// @param loanID index of loan in loans[]
+    function claimRepaid (uint256 loanID) external {
+        Loan storage loan = loans[loanID];
+        uint256 claim = loan.repaid;
+        loan.repaid = 0;
+        debt.transfer(loan.lender, claim);
     }
 
     /// @notice roll a loan over
