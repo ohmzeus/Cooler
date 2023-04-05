@@ -3,10 +3,13 @@ pragma solidity ^0.8.0;
 
 import "./lib/mininterfaces.sol";
 import "./Factory.sol";
+import "./lib/SafeERC20.sol";
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
 ///         for a specific user and debt-collateral pair.
 contract Cooler {
+    using SafeERC20 for ERC20;
+
     // Errors
 
     error OnlyApproved();
@@ -83,7 +86,7 @@ contract Cooler {
         requests.push(
             Request(amount, interest, loanToCollateral, duration, true)
         );
-        collateral.transferFrom(msg.sender, address(this), collateralFor(amount, loanToCollateral));
+        collateral.safeTransferFrom(msg.sender, address(this), collateralFor(amount, loanToCollateral));
     }
 
     /// @notice cancel a loan request and return collateral
@@ -100,7 +103,7 @@ contract Cooler {
             revert Deactivated();
         
         req.active = false;
-        collateral.transfer(owner, collateralFor(req.amount, req.loanToCollateral));
+        collateral.safeTransfer(owner, collateralFor(req.amount, req.loanToCollateral));
     }
 
     /// @notice repay a loan to recoup collateral
@@ -123,8 +126,8 @@ contract Cooler {
         loan.repaid += repaid;
         loan.collateral -= decollateralized;
 
-        debt.transferFrom(msg.sender, address(this), repaid);
-        collateral.transfer(owner, decollateralized);
+        debt.safeTransferFrom(msg.sender, address(this), repaid);
+        collateral.safeTransfer(owner, decollateralized);
     }
 
     /// @notice claim debt tokens for lender
@@ -133,7 +136,7 @@ contract Cooler {
         Loan storage loan = loans[loanID];
         uint256 claim = loan.repaid;
         loan.repaid = 0;
-        debt.transfer(loan.lender, claim);
+        debt.safeTransfer(loan.lender, claim);
     }
 
     /// @notice roll a loan over
@@ -157,7 +160,7 @@ contract Cooler {
         loan.collateral += newCollateral;
         
         if (newCollateral > 0)
-            collateral.transferFrom(msg.sender, address(this), newCollateral);
+            collateral.safeTransferFrom(msg.sender, address(this), newCollateral);
     }
 
     /// @notice delegate voting power on collateral
@@ -190,7 +193,7 @@ contract Cooler {
         loans.push(
             Loan(req, req.amount + interest, 0, collat, expiration, msg.sender)
         );
-        debt.transferFrom(msg.sender, owner, req.amount);
+        debt.safeTransferFrom(msg.sender, owner, req.amount);
     }
 
     /// @notice provide terms for loan to roll over
@@ -222,7 +225,7 @@ contract Cooler {
         if (block.timestamp <= loan.expiry) 
             revert NoDefault();
 
-        collateral.transfer(loan.lender, loan.collateral);
+        collateral.safeTransfer(loan.lender, loan.collateral);
         return loan.collateral;
     }
 
