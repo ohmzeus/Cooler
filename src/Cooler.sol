@@ -185,7 +185,7 @@ contract Cooler {
 
         loanID = loans.length;
         loans.push(
-            Loan(req, req.amount + interest, 0, collat, expiration, msg.sender)
+            Loan(req, req.amount + interest, collat, expiration, true, msg.sender)
         );
         debt.transferFrom(msg.sender, owner, req.amount);
     }
