@@ -12,6 +12,8 @@ contract CoolerFactory {
     event Rescind(address cooler, uint256 reqID);
     // A global event when a loan request is cleared
     event Clear(address cooler, uint256 reqID);
+    // A global event when a loan is repaid
+    event Repay(address cooler, uint256 loanID, uint256 amount);
 
     // Mapping to validate deployed coolers
     mapping(address => bool) public created;
@@ -36,13 +38,14 @@ contract CoolerFactory {
         }
     }
 
-    enum Events {Request, Rescind, Clear}
+    enum Events {Request, Rescind, Clear, Repay}
 
     /// @notice emit an event each time a request is interacted with on a Cooler
-    function newEvent (uint256 id, Events ev) external {
+    function newEvent (uint256 id, Events ev, uint256 amount) external {
         require (created[msg.sender], "Only Created");
 
         if (ev == Events.Clear) emit Clear(msg.sender, id);
+        else if (ev == Events.Repay) emit Repay(msg.sender, id, amount);
         else if (ev == Events.Rescind) emit Rescind(msg.sender, id);  
         else if (ev == Events.Request)
             emit Request(

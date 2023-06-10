@@ -38,6 +38,7 @@ contract Cooler {
         uint256 collateral; // the amount of collateral pledged,
         uint256 expiry; // the time when the loan defaults,
         address lender; // and the lender's address.
+        bool repayDirect; // If this is false, repaid tokens must be claimed by lender.
     }
 
     // Facilitates transfer of lender ownership to new address
@@ -82,7 +83,7 @@ contract Cooler {
         uint256 duration
     ) external returns (uint256 reqID) {
         reqID = requests.length;
-        factory.newEvent(reqID, CoolerFactory.Events.Request);
+        factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
         requests.push(
             Request(amount, interest, loanToCollateral, duration, true)
         );
@@ -95,7 +96,7 @@ contract Cooler {
         if (msg.sender != owner) 
             revert OnlyApproved();
 
-        factory.newEvent(reqID, CoolerFactory.Events.Rescind);
+        factory.newEvent(reqID, CoolerFactory.Events.Rescind, 0);
 
         Request storage req = requests[reqID];
 
@@ -114,23 +115,28 @@ contract Cooler {
 
         if (block.timestamp > loan.expiry) 
             revert Default();
+
+        if (repaid > loan.amount) 
+            repaid = loan.amount;
         
         uint256 decollateralized = loan.collateral * repaid / loan.amount;
         if (decollateralized == 0)
             revert ZeroCollateralReturned();
 
-        if (repaid > loan.amount) 
-            repaid = loan.amount;
+        factory.newEvent(loanID, CoolerFactory.Events.Repay, repaid);
 
         loan.amount -= repaid;
-        loan.repaid += repaid;
         loan.collateral -= decollateralized;
 
-        debt.safeTransferFrom(msg.sender, address(this), repaid);
+        address repayTo = loan.repayDirect ? loan.lender : address(this);
+        if (!loan.repayDirect) 
+            loan.repaid += repaid;
+
+        debt.safeTransferFrom(msg.sender, repayTo, repaid);
         collateral.safeTransfer(owner, decollateralized);
     }
 
-    /// @notice claim debt tokens for lender
+    /// @notice claim debt tokens for lender if repayDirect was false
     /// @param loanID index of loan in loans[]
     function claimRepaid (uint256 loanID) external {
         Loan storage loan = loans[loanID];
@@ -144,7 +150,6 @@ contract Cooler {
     /// @param loanID index of loan in loans[]
     function roll (uint256 loanID) external {
         Loan storage loan = loans[loanID];
-        Request memory req = loan.request;
 
         if (block.timestamp > loan.expiry) 
             revert Default();
@@ -152,12 +157,12 @@ contract Cooler {
         if (!loan.request.active)
             revert NotRollable();
 
-        uint256 newCollateral = collateralFor(loan.amount, req.loanToCollateral) - loan.collateral;
-        uint256 newDebt = interestFor(loan.amount, req.interest, req.duration);
+        uint256 newCollateral = newCollateralFor(loanID);
+        uint256 newDebt = interestFor(loan.amount, loan.request.interest, loan.request.duration);
 
         loan.amount += newDebt;
-        loan.expiry += req.duration;
         loan.collateral += newCollateral;
+        loan.expiry += loan.request.duration;
         
         if (newCollateral > 0)
             collateral.safeTransferFrom(msg.sender, address(this), newCollateral);
@@ -175,11 +180,12 @@ contract Cooler {
 
     /// @notice fill a requested loan as a lender
     /// @param reqID index of request in requests[]
-    /// @param loanID index of loan in loans[]
-    function clear (uint256 reqID) external returns (uint256 loanID) {
+    /// @param repayDirect lender should input false if concerned about debt token blacklisting
+    /// @return loanID index of loan in loans[]
+    function clear (uint256 reqID, bool repayDirect) external returns (uint256 loanID) {
         Request storage req = requests[reqID];
 
-        factory.newEvent(reqID, CoolerFactory.Events.Clear);
+        factory.newEvent(reqID, CoolerFactory.Events.Clear, 0);
 
         if (!req.active) 
             revert Deactivated();
@@ -191,7 +197,7 @@ contract Cooler {
 
         loanID = loans.length;
         loans.push(
-            Loan(req, req.amount + interest, 0, collat, expiration, msg.sender)
+            Loan(req, req.amount + interest, 0, collat, expiration, msg.sender, repayDirect)
         );
         debt.safeTransferFrom(msg.sender, owner, req.amount);
     }
@@ -251,6 +257,17 @@ contract Cooler {
         loans[loanID].lender = msg.sender;
     }
 
+    /// @notice turn direct repayment off or on
+    /// @param loanID of lender's loan
+    function toggleDirect(uint256 loanID) external {
+        Loan storage loan = loans[loanID];
+
+        if (msg.sender != loan.lender)
+            revert OnlyApproved();
+
+        loan.repayDirect = !loan.repayDirect;
+    }
+
     // Views
 
     /// @notice compute collateral needed for loan amount at given loan to collateral ratio
@@ -258,6 +275,13 @@ contract Cooler {
     /// @param loanToCollateral ratio for loan
     function collateralFor(uint256 amount, uint256 loanToCollateral) public pure returns (uint256) {
         return amount * decimals / loanToCollateral;
+    }
+
+    /// @notice compute collateral needed to roll loan
+    /// @param loanID of loan to roll
+    function newCollateralFor(uint256 loanID) public view returns (uint256) {
+        Loan memory loan = loans[loanID];
+        return collateralFor(loan.amount, loan.request.loanToCollateral) - loan.collateral;
     }
 
     /// @notice compute interest cost on amount for duration at given annualized rate
