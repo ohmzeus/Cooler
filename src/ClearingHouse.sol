@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "src/Factory.sol";
 import {ROLESv1, RolesConsumer} from "lib/olympus-v3/src/modules/ROLES/OlympusRoles.sol";
 import {TRSRYv1, ERC20 as TRSRYERC20} from "lib/olympus-v3/src/modules/TRSRY/TRSRY.v1.sol";
-import {Kernel, Policy, Keycode, toKeycode} from "lib/olympus-v3/src/Kernel.sol";
+import {Kernel, Policy, Keycode, toKeycode, Permissions} from "lib/olympus-v3/src/Kernel.sol";
 
 contract ClearingHouse is Policy, RolesConsumer {
     // Errors
@@ -54,6 +54,11 @@ contract ClearingHouse is Policy, RolesConsumer {
 
         TRSRY = TRSRYv1(getModuleAddress(toKeycode("TRSRY")));
         ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
+    }
+
+    function requestPermissions() external view override returns (Permissions[] memory requests) {
+        requests = new Permissions[](1);
+        requests[0] = Permissions(toKeycode("TRSRY"), TRSRY.withdrawReserves.selector);
     }
 
     // Operation
