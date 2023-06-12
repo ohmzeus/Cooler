@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "../Factory.sol";
-import "../lib/ITRSRY.sol";
+import "src/Factory.sol";
+import {ROLESv1, RolesConsumer} from "lib/olympus-v3/src/modules/ROLES/OlympusRoles.sol";
+import {TRSRYv1, ERC20 as TRSRYERC20} from "lib/olympus-v3/src/modules/TRSRY/TRSRY.v1.sol";
+import {Kernel, Policy, Keycode, toKeycode} from "lib/olympus-v3/src/Kernel.sol";
 
-contract ClearingHouse {
+contract ClearingHouse is Policy, RolesConsumer {
     // Errors
 
-    error OnlyApproved();
     error OnlyFromFactory();
     error BadEscrow();
     error DurationMaximum();
@@ -21,8 +22,10 @@ contract ClearingHouse {
 
     ERC20 public immutable dai;
     ERC20 public immutable gOHM;
-    ITRSRY public immutable treasury;
     CoolerFactory public immutable factory;
+
+    // Modules
+    TRSRYv1 internal TRSRY;
 
     // Parameter Bounds
 
@@ -34,14 +37,23 @@ contract ClearingHouse {
         address o, 
         ERC20 g, 
         ERC20 d, 
-        CoolerFactory f, 
-        ITRSRY t
-    ) {
+        CoolerFactory f,
+        address k
+    ) Policy(Kernel(k)) {
         overseer = o;
         gOHM = g;
         dai = d;
         factory = f;
-        treasury = t;
+    }
+
+    // Default framework setup
+    function configureDependencies() external override returns (Keycode[] memory dependencies) {
+        dependencies = new Keycode[](2);
+        dependencies[0] = toKeycode("TRSRY");
+        dependencies[1] = toKeycode("ROLES");
+
+        TRSRY = TRSRYv1(getModuleAddress(toKeycode("TRSRY")));
+        ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
     }
 
     // Operation
@@ -93,36 +105,14 @@ contract ClearingHouse {
 
     /// @notice fund loan liquidity from treasury
     /// @param amount of DAI to fund
-    function fund (uint256 amount) external {
-        if (msg.sender != overseer) 
-            revert OnlyApproved();
-        treasury.withdrawReserves(address(this), dai, amount);
+    function fund (uint256 amount) external onlyRole("cooler_overseer") {
+        TRSRY.withdrawReserves(address(this), TRSRYERC20(address(dai)), amount);
     }
 
     /// @notice return funds to treasury
     /// @param token to transfer
     /// @param amount to transfer
-    function defund (ERC20 token, uint256 amount) external {
-        if (msg.sender != overseer) 
-            revert OnlyApproved();
-        token.transfer(address(treasury), amount);
-    }
-
-    // Management
-
-    /// @notice operator or overseer can set a new address
-    /// @dev using a push/pull model for safety
-    function push (address newAddress) external {
-        if (msg.sender == overseer) 
-            pendingOverseer = newAddress;
-        else revert OnlyApproved();
-    }
-
-    /// @notice new operator or overseer can pull role once pushed
-    function pull () external {
-        if (msg.sender == pendingOverseer) {
-            overseer = pendingOverseer;
-            pendingOverseer = address(0);
-        } else revert OnlyApproved();
+    function defund (ERC20 token, uint256 amount) external onlyRole("cooler_overseer") {
+        token.transfer(address(TRSRY), amount);
     }
 }
