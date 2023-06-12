@@ -144,12 +144,10 @@ contract ContractTest is DSTest {
     }
 
     function test_clear() public {
-        setUp();
         clear(request());
     }
 
     function test_repay() public {
-        setUp();
         uint loanID = clear(request());
 
         // Test repay
@@ -165,22 +163,18 @@ contract ContractTest is DSTest {
     }
 
     function test_roll() public {
-        setUp();
         roll(clear(request()));
     }
     
     function test_default() public {
-        setUp();
         processDefault(clear(request()));
     }
 
     function test_defunding() public {
-        setUp();
         withdrawTokens();
     }
 
     function test_funding() public {
-        setUp();
         uint balance = dai.balanceOf(address(clearinghouse));
         uint last = clearinghouse.lastFunded();
 
@@ -200,9 +194,7 @@ contract ContractTest is DSTest {
         assertTrue(balance + budget[2] == dai.balanceOf(address(clearinghouse)));
     }
 
-    /// @dev sorry I am not great with testing syntax
-    function test_shouldFail_notRollable() public {
-        setUp();
+    function testFail_shouldFail_notRollable() public {
         uint loanID = clear(request());
 
         clearinghouse.toggleRoll(cooler, loanID);
