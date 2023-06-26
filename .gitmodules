@@ -7,3 +7,6 @@
 [submodule "lib/olympus-v3"]
 	path = lib/olympus-v3
 	url = https://github.com/OlympusDAO/olympus-v3
+[submodule "lib/solmate"]
+	path = lib/solmate
+	url = https://github.com/transmissions11/solmate
