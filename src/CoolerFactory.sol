@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./Cooler.sol";
-import "./lib/ERC20.sol";
+import {ERC20} from "solmate/tokens/ERC20.sol";
+
+import {Cooler} from "./Cooler.sol";
 
 /// @notice the Cooler Factory creates new Cooler escrow contracts
 contract CoolerFactory {
     // A global event when a loan request is created
-    event Request(address cooler, address collateral, address debt, uint256 reqID);
+    event Request(
+        address cooler,
+        address collateral,
+        address debt,
+        uint256 reqID
+    );
     // A global event when a loan request is rescinded
     event Rescind(address cooler, uint256 reqID);
     // A global event when a loan request is cleared
@@ -19,13 +25,17 @@ contract CoolerFactory {
     mapping(address => bool) public created;
 
     // Mapping to prevent duplicate coolers
-    mapping(address => mapping(ERC20 => mapping(ERC20 => address))) private coolerFor;
+    mapping(address => mapping(ERC20 => mapping(ERC20 => address)))
+        private coolerFor;
 
     // Mapping to query Coolers for Collateral-Debt pair
     mapping(ERC20 => mapping(ERC20 => address[])) public coolersFor;
 
     /// @notice creates a new Escrow contract for collateral and debt tokens
-    function generate (ERC20 collateral, ERC20 debt) external returns (address cooler) {
+    function generate(
+        ERC20 collateral,
+        ERC20 debt
+    ) external returns (address cooler) {
         // Return address if cooler exists
         cooler = coolerFor[msg.sender][collateral][debt];
 
@@ -38,20 +48,25 @@ contract CoolerFactory {
         }
     }
 
-    enum Events {Request, Rescind, Clear, Repay}
+    enum Events {
+        Request,
+        Rescind,
+        Clear,
+        Repay
+    }
 
     /// @notice emit an event each time a request is interacted with on a Cooler
-    function newEvent (uint256 id, Events ev, uint256 amount) external {
-        require (created[msg.sender], "Only Created");
+    function newEvent(uint256 id, Events ev, uint256 amount) external {
+        require(created[msg.sender], "Only Created");
 
         if (ev == Events.Clear) emit Clear(msg.sender, id);
         else if (ev == Events.Repay) emit Repay(msg.sender, id, amount);
-        else if (ev == Events.Rescind) emit Rescind(msg.sender, id);  
+        else if (ev == Events.Rescind) emit Rescind(msg.sender, id);
         else if (ev == Events.Request)
             emit Request(
-                msg.sender, 
-                address(Cooler(msg.sender).collateral()), 
-                address(Cooler(msg.sender).debt()), 
+                msg.sender,
+                address(Cooler(msg.sender).collateral()),
+                address(Cooler(msg.sender).debt()),
                 id
             );
     }
