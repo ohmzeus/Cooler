@@ -13,6 +13,7 @@ contract ClearingHouse is Policy, RolesConsumer {
     error OnlyFromFactory();
     error BadEscrow();
     error DurationMaximum();
+    error OnlyBurnable();
 
     // Roles
 
