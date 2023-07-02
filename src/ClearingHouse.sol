@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "src/Factory.sol";
+import "src/lib/mininterfaces.sol";
 import {ROLESv1, RolesConsumer} from "lib/olympus-v3/src/modules/ROLES/OlympusRoles.sol";
 import {TRSRYv1, ERC20 as TRSRYERC20} from "lib/olympus-v3/src/modules/TRSRY/TRSRY.v1.sol";
 import {Kernel, Policy, Keycode, toKeycode, Permissions} from "lib/olympus-v3/src/Kernel.sol";
@@ -20,29 +21,29 @@ contract ClearingHouse is Policy, RolesConsumer {
 
     // Relevant Contracts
 
-    ERC20 public immutable dai;
-    ERC20 public immutable gOHM;
     CoolerFactory public immutable factory;
+    ERC20 public immutable dai = ERC20(0x6b175474e89094c44da98b954eedeac495271d0f);
+    ERC20 public immutable gOHM = ERC20(0x0ab87046fBb341D058F17CBC4c1133F25a20a52f);
+    IStaking public immutable staking = IStaking(0xB63cac384247597756545b500253ff8E607a8020);
+    IBurnableERC20 public immutable ohm = IBurnableERC20(0x64aa3364F17a4D01c6f1751Fd97C2BD3D7e7f1D5);
 
     // Modules
+
     TRSRYv1 internal TRSRY;
 
     // Parameter Bounds
 
-    uint256 public constant interestRate = 1e16; // 1%
-    uint256 public constant loanToCollateral = 3 * 1e21; // 3,000
-    uint256 public constant maxDuration = 365 days; // 1 year
+    uint256 public constant interestRate = 5e15; // 0.5%
+    uint256 public constant loanToCollateral = 3000 * 1e18; // 3,000
+    uint256 public constant duration = 121 days; // Four months
+    uint256 public constant fundCadence = 7 days; // One week
+    uint256 public constant fundAmount = 18 * 1e24; // 18 million
+    uint256 public constant liquidBalance = 3 * 1e24; // 3 million should be liquid, rest to DSR
 
-    constructor (
-        address o, 
-        ERC20 g, 
-        ERC20 d, 
-        CoolerFactory f,
-        address k
+    constructor ( 
+        address k,
+        CoolerFactory f
     ) Policy(Kernel(k)) {
-        overseer = o;
-        gOHM = g;
-        dai = d;
         factory = f;
     }
 
@@ -66,15 +67,12 @@ contract ClearingHouse is Policy, RolesConsumer {
     /// @notice lend to a cooler
     /// @param cooler to lend to
     /// @param amount of DAI to lend
-    /// @param duration of loan
-    function lend (Cooler cooler, uint256 amount, uint256 duration) external {
+    function lend (Cooler cooler, uint256 amount) external {
         // Validate
         if (!factory.created(address(cooler))) 
             revert OnlyFromFactory();
         if (cooler.collateral() != gOHM || cooler.debt() != dai)
             revert BadEscrow();
-        if (duration > maxDuration)
-            revert DurationMaximum();
         
         // Compute and access collateral
         uint256 collateral = cooler.collateralFor(amount, loanToCollateral);
@@ -106,18 +104,48 @@ contract ClearingHouse is Policy, RolesConsumer {
         cooler.roll(id);
     }
 
-    // Oversight
+    // Funding
+
+    uint256 public fundTime; // Timestamp at which rebalancing can occur
 
     /// @notice fund loan liquidity from treasury
-    /// @param amount of DAI to fund
-    function fund (uint256 amount) external onlyRole("cooler_overseer") {
-        TRSRY.withdrawReserves(address(this), TRSRYERC20(address(dai)), amount);
+    function fund () external {
+        if (fundTime == 0) 
+            fundTime = block.timestamp + fundCadence;
+        else if (fundTime <= block.timestamp)
+            fundTime += fundCadence;
+        else revert("Too early to fund");
+
+        uint256 balance = dai.balanceOf(address(this));
+        if (balance < fundAmount) 
+            TRSRY.withdrawReserves(address(this), TRSRYERC20(address(dai)), amount);
+        else dai.transfer(address(treasury), balance - fundAmount);
+    }
+
+    /// @notice rebalance liquidity between clearinghouse and DSR
+    /// @dev todo
+    function rebalance() external {
+        uint256 balance = dai.balanceOf(address(this));
+        if (balance < liquidBalance) {
+            // Withdraw from DSR if available
+        } else if (balance > liquidBalance) {
+            // Deposit into DSR
+        }
     }
 
     /// @notice return funds to treasury
     /// @param token to transfer
     /// @param amount to transfer
     function defund (ERC20 token, uint256 amount) external onlyRole("cooler_overseer") {
+        if (token == gOHM)
+            revert OnlyBurnable();
         token.transfer(address(TRSRY), amount);
+    }
+
+    /// @notice allow any address to burn collateral returned to clearinghouse
+    function burn() external {
+        uint256 balance = gOHM.balanceOf(address(this));
+        gOHM.approve(address(staking), balance);
+        ohm.burn(staking.unstake(address(this), balance, false, false));
     }
 }
