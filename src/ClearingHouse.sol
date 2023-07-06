@@ -95,12 +95,18 @@ contract ClearingHouse is Policy, RolesConsumer {
         override
         returns (Permissions[] memory requests)
     {
+        Keycode memory TRSRY_KEYCODE = toKeycode("TRSRY");
+
         requests = new Permissions[](2);
         requests[0] = Permissions(
-            toKeycode("TRSRY"),
+            TRSRY_KEYCODE,
             TRSRY.withdrawReserves.selector
         );
-        requests[1] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
+        requests[1] = Permissions(
+            TRSRY_KEYCODE,
+            TRSRY.increaseWithdrawApproval.selector
+        );
+        requests[2] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
     // Operation
@@ -167,18 +173,20 @@ contract ClearingHouse is Policy, RolesConsumer {
         uint256 balance = dai.balanceOf(address(this)) +
             sDai.maxWithdraw(address(this));
 
-        // Rebalance funding on hand with treasury's reserves
+        // Rebalance funds on hand with treasury's reserves
         if (balance < FUND_AMOUNT) {
-            TRSRY.withdrawReserves(address(this), dai, FUND_AMOUNT - balance);
+            uint256 amount = FUND_AMOUNT - balance;
+
+            TRSRY.increaseWithdrawApproval(address(this), dai, amount);
+            TRSRY.withdrawReserves(address(this), dai, amount);
             sweep();
         } else {
             // Withdraw from sDAI to the treasury
             sDai.withdraw(balance - FUND_AMOUNT, address(TRSRY), address(this));
-            //dai.transfer(address(TRSRY), balance - FUND_AMOUNT);
         }
     }
 
-    /// @notice Sweep excess DAI into sDAI vault
+    /// @notice Sweep excess DAI into vault
     function sweep() public {
         sDai.deposit(dai.balanceOf(address(this)), address(this));
     }
