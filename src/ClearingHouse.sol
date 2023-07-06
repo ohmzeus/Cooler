@@ -3,13 +3,12 @@ pragma solidity ^0.8.0;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {ERC4626} from "solmate/mixins/ERC4626.sol";
-
-//import "src/Factory.sol";
-//import "src/lib/mininterfaces.sol";
 import {ROLESv1, RolesConsumer} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {TRSRYv1} from "olympus-v3/modules/TRSRY/TRSRY.v1.sol";
 import {MINTRv1} from "olympus-v3/modules/MINTR/MINTR.v1.sol";
 import "olympus-v3/Kernel.sol";
+
+import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
 
 interface IStaking {
     function unstake(
@@ -33,7 +32,7 @@ contract ClearingHouse is Policy, RolesConsumer {
     CoolerFactory public immutable factory;
     ERC20 public immutable dai;
     ERC4626 public immutable sDai;
-    ERC20 public immutable ohm;
+    //ERC20 public immutable ohm;
     ERC20 public immutable gOHM;
     IStaking public immutable staking;
 
@@ -50,24 +49,24 @@ contract ClearingHouse is Policy, RolesConsumer {
 
     // Parameter Bounds
 
-    uint256 public constant interestRate = 5e15; // 0.5%
-    uint256 public constant loanToCollateral = 3000 * 1e18; // 3,000
-    uint256 public constant duration = 121 days; // Four months
-    uint256 public constant fundCadence = 7 days; // One week
-    uint256 public constant fundAmount = 18 * 1e24; // 18 million
-    uint256 public constant liquidBalance = 3 * 1e24; // 3 million should be liquid, rest to DSR
+    uint256 public constant INTEREST_RATE = 5e15; // 0.5%
+    uint256 public constant LOAN_TO_COLLATERAL = 3000 * 1e18; // 3,000
+    uint256 public constant DURATION = 121 days; // Four months
+    uint256 public constant FUND_CADENCE = 7 days; // One week
+    uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
+    uint256 public constant LIQUID_BALANCE = 3 * 1e24; // 3 million should be liquid, rest to DSR
 
-    //constructor(address k, CoolerFactory f) Policy(Kernel(k)) {
-    //factory = f;
-    //}
+    uint256 public fundTime; // Timestamp at which rebalancing can occur
 
     constructor(
         address gohm_,
+        address staking_,
         address sdai_,
         address coolerFactory_,
         address kernel_
-    ) Policy(Kernel(k)) {
+    ) Policy(Kernel(kernel_)) {
         gOHM = ERC20(gohm_);
+        staking = IStaking(staking_);
         sDai = ERC4626(sdai_);
         dai = ERC20(sDai.asset());
         factory = CoolerFactory(coolerFactory_);
@@ -115,16 +114,16 @@ contract ClearingHouse is Policy, RolesConsumer {
             revert BadEscrow();
 
         // Compute and access collateral
-        uint256 collateral = cooler.collateralFor(amount, loanToCollateral);
+        uint256 collateral = cooler.collateralFor(amount, LOAN_TO_COLLATERAL);
         gOHM.transferFrom(msg.sender, address(this), collateral);
 
         // Create loan request
         gOHM.approve(address(cooler), collateral);
         uint256 id = cooler.request(
             amount,
-            interestRate,
-            loanToCollateral,
-            duration
+            INTEREST_RATE,
+            LOAN_TO_COLLATERAL,
+            DURATION
         );
 
         // Clear loan request
@@ -135,14 +134,13 @@ contract ClearingHouse is Policy, RolesConsumer {
     /// @notice provide terms for loan rollover
     /// @param cooler to provide terms
     /// @param id of loan in cooler
-    /// @param duration of new loan
-    function roll(Cooler cooler, uint256 id, uint256 duration) external {
+    function roll(Cooler cooler, uint256 id) external {
         // Provide rollover terms
         cooler.provideNewTermsForRoll(
             id,
-            interestRate,
-            loanToCollateral,
-            duration
+            INTEREST_RATE,
+            LOAN_TO_COLLATERAL,
+            DURATION
         );
 
         // Collect applicable new collateral from user
@@ -158,32 +156,30 @@ contract ClearingHouse is Policy, RolesConsumer {
 
     // TODO can use TRSRY debt functions instead
 
-    uint256 public fundTime; // Timestamp at which rebalancing can occur
-
     /// @notice fund loan liquidity from treasury
     function fund() external {
-        if (fundTime == 0) fundTime = block.timestamp + fundCadence;
-        else if (fundTime <= block.timestamp) fundTime += fundCadence;
+        if (fundTime == 0) fundTime = block.timestamp + FUND_CADENCE;
+        else if (fundTime <= block.timestamp) fundTime += FUND_CADENCE;
         else revert("Too early to fund");
 
         uint256 balance = dai.balanceOf(address(this));
-        if (balance < fundAmount)
-            TRSRY.withdrawReserves(address(this), dai, amount);
-        else dai.transfer(address(treasury), balance - fundAmount);
+        if (balance < FUND_AMOUNT)
+            TRSRY.withdrawReserves(address(this), dai, FUND_AMOUNT - balance);
+        else dai.transfer(address(TRSRY), balance - FUND_AMOUNT);
     }
 
     /// @notice rebalance liquidity between clearinghouse and DSR
     /// @dev todo
     function rebalance() external {
         uint256 balance = dai.balanceOf(address(this));
-        if (balance < liquidBalance) {
+        if (balance < LIQUID_BALANCE) {
             // Withdraw from DSR if available
-        } else if (balance > liquidBalance) {
+        } else if (balance > LIQUID_BALANCE) {
             // Deposit into DSR
         }
     }
 
-    /// @notice return funds to treasury
+    /// @notice Return funds to treasury. Used for defaulted collateral returned to clearinghouse.
     /// @param token to transfer
     /// @param amount to transfer
     function defund(
@@ -194,10 +190,15 @@ contract ClearingHouse is Policy, RolesConsumer {
         token.transfer(address(TRSRY), amount);
     }
 
-    /// @notice allow any address to burn collateral returned to clearinghouse
+    /// @notice Allow any address to burn collateral returned to clearinghouse
     function burn() external {
         uint256 balance = gOHM.balanceOf(address(this));
         gOHM.approve(address(staking), balance);
-        MINTR.burnOhm(staking.unstake(address(this), balance, false, false));
+
+        // Unstake gOHM then burn
+        MINTR.burnOhm(
+            address(this),
+            staking.unstake(address(this), balance, false, false)
+        );
     }
 }
