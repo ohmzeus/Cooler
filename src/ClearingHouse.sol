@@ -26,6 +26,7 @@ contract ClearingHouse is Policy, RolesConsumer {
     error BadEscrow();
     error DurationMaximum();
     error OnlyBurnable();
+    error TooEarlyToFund();
 
     // Relevant Contracts
 
@@ -126,7 +127,8 @@ contract ClearingHouse is Policy, RolesConsumer {
             DURATION
         );
 
-        // Clear loan request
+        // Clear loan request by providing enough DAI
+        sDai.withdraw(amount, address(this), address(this));
         dai.approve(address(cooler), amount);
         cooler.clear(id, true);
     }
@@ -157,29 +159,31 @@ contract ClearingHouse is Policy, RolesConsumer {
     // TODO can use TRSRY debt functions instead
 
     /// @notice fund loan liquidity from treasury
-    function fund() external {
+    function rebalance() external {
         if (fundTime == 0) fundTime = block.timestamp + FUND_CADENCE;
         else if (fundTime <= block.timestamp) fundTime += FUND_CADENCE;
-        else revert("Too early to fund");
+        else revert TooEarlyToFund();
 
-        uint256 balance = dai.balanceOf(address(this));
-        if (balance < FUND_AMOUNT)
+        uint256 balance = dai.balanceOf(address(this)) +
+            sDai.maxWithdraw(address(this));
+
+        // Rebalance funding on hand with treasury's reserves
+        if (balance < FUND_AMOUNT) {
             TRSRY.withdrawReserves(address(this), dai, FUND_AMOUNT - balance);
-        else dai.transfer(address(TRSRY), balance - FUND_AMOUNT);
-    }
-
-    /// @notice rebalance liquidity between clearinghouse and DSR
-    /// @dev todo
-    function rebalance() external {
-        uint256 balance = dai.balanceOf(address(this));
-        if (balance < LIQUID_BALANCE) {
-            // Withdraw from DSR if available
-        } else if (balance > LIQUID_BALANCE) {
-            // Deposit into DSR
+            sweep();
+        } else {
+            // Withdraw from sDAI to the treasury
+            sDai.withdraw(balance - FUND_AMOUNT, address(TRSRY), address(this));
+            //dai.transfer(address(TRSRY), balance - FUND_AMOUNT);
         }
     }
 
-    /// @notice Return funds to treasury. Used for defaulted collateral returned to clearinghouse.
+    /// @notice Sweep excess DAI into sDAI vault
+    function sweep() public {
+        sDai.deposit(dai.balanceOf(address(this)), address(this));
+    }
+
+    /// @notice Return funds to treasury.
     /// @param token to transfer
     /// @param amount to transfer
     function defund(
