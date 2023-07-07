@@ -33,15 +33,8 @@ contract ClearingHouse is Policy, RolesConsumer {
     CoolerFactory public immutable factory;
     ERC20 public immutable dai;
     ERC4626 public immutable sDai;
-    //ERC20 public immutable ohm;
     ERC20 public immutable gOHM;
     IStaking public immutable staking;
-
-    //ERC20 public immutable dai = ERC20(0x6b175474e89094c44da98b954eedeac495271d0f);
-    //ERC20 public immutable gOHM = ERC20(0x0ab87046fBb341D058F17CBC4c1133F25a20a52f);
-    //IStaking public immutable staking = IStaking(0xB63cac384247597756545b500253ff8E607a8020);
-    //IBurnableERC20 public immutable ohm =
-    //    IBurnableERC20(0x64aa3364F17a4D01c6f1751Fd97C2BD3D7e7f1D5);
 
     // Modules
 
@@ -55,9 +48,10 @@ contract ClearingHouse is Policy, RolesConsumer {
     uint256 public constant DURATION = 121 days; // Four months
     uint256 public constant FUND_CADENCE = 7 days; // One week
     uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
-    uint256 public constant LIQUID_BALANCE = 3 * 1e24; // 3 million should be liquid, rest to DSR
 
     uint256 public fundTime; // Timestamp at which rebalancing can occur
+
+    // Initialization
 
     constructor(
         address gohm_,
@@ -73,7 +67,7 @@ contract ClearingHouse is Policy, RolesConsumer {
         factory = CoolerFactory(coolerFactory_);
     }
 
-    // Default framework setup
+    /// @notice Default framework setup
     function configureDependencies()
         external
         override
@@ -89,6 +83,7 @@ contract ClearingHouse is Policy, RolesConsumer {
         ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
     }
 
+    /// @notice Default framework setup
     function requestPermissions()
         external
         view
@@ -188,7 +183,9 @@ contract ClearingHouse is Policy, RolesConsumer {
 
     /// @notice Sweep excess DAI into vault
     function sweep() public {
-        sDai.deposit(dai.balanceOf(address(this)), address(this));
+        uint256 balance = dai.balanceOf(address(this));
+        dai.approve(address(sDai), balance);
+        sDai.deposit(balance, address(this));
     }
 
     /// @notice Return funds to treasury.
