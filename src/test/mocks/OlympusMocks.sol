@@ -9,11 +9,19 @@ interface IDistributor {
     function retrieveBounty() external returns (uint256);
 }
 
-contract MockGohm is MockERC20 {
+interface IDelegate {
+    function delegate(address) external returns (bool);
+}
+
+contract MockGohm is MockERC20, IDelegate {
     uint256 index;
 
     constructor(uint256 index_) MockERC20("gOHM", "gOHM", 18) {
         index = index_;
+    }
+
+    function delegate(address) public pure returns (bool) {
+        return true;
     }
 
     function balanceFrom(uint256 amount_) public view returns (uint256) {
