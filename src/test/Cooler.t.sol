@@ -31,32 +31,31 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] loan is updated
 //     [X] direct (true): new collateral and debt balances are correct
 //     [X] direct (false): new collateral and debt balances are correct
-// [ ] claimRepaid
-//     [ ] only lender can claim repaid?
-//     [ ] loan is updated
-//     [ ] lender and cooler new debt balances are correct
+// [X] claimRepaid
+//     [X] loan is updated
+//     [X] lender and cooler new debt balances are correct
+// [X] toggleDirect
+//     [X] only the lender can toggle
+//     [X] loan is properly updated
 // [ ] roll
 //     [ ] only possible before expiry
 //     [ ] only possible for active loans
 //     [ ] loan is updated
 //     [ ] user and cooler new collateral balances are correct
-// [ ] delegate
-//     [ ] only owner can delegate
-//     [ ] collateral voting power is properly delegated
 // [ ] provideNewTermsForRoll
 //     [ ] only lender can set new terms
 //     [ ] request is properly updated
-// [ ] defaulted
-//     [ ] only possible after expiry
-//     [ ] lender and cooler new collateral balances are correct
+// [X] defaulted
+//     [X] only possible after expiry
+//     [X] lender and cooler new collateral balances are correct
+// [ ] delegate
+//     [ ] only owner can delegate
+//     [ ] collateral voting power is properly delegated
 // [ ] approve
 //     [ ] only the lender can approve a transfer
 //     [ ] approval stored
 // [ ] transfer
 //     [ ] only the approved addresses can transfer
-//     [ ] loan is properly updated
-// [ ] toggleDirect
-//     [ ] only the lender can toggle
 //     [ ] loan is properly updated
 
 
@@ -301,7 +300,7 @@ contract CoolerTest is Test {
         debt.approve(address(cooler), amount);
         // only possible to rescind active requests
         vm.expectRevert(Cooler.Deactivated.selector);
-        uint256 loanID = cooler.clear(reqID, directRepay);
+        cooler.clear(reqID, directRepay);
         vm.stopPrank();
     }
 
@@ -414,20 +413,13 @@ contract CoolerTest is Test {
         vm.stopPrank();
     }
 
-// [ ] claimRepaid
-//     [ ] only lender can claim repaid?
-//     [ ] loan is updated
-//     [ ] lender and cooler new debt balances are correct
-
+    // -- Cooler: Claim Repaid ---------------------------------------------------
     
     function test_claimRepaid() public {
         // test inputs
         bool directRepay = false;
         uint256 amount = 1234 * 1e18;
         uint256 repayAmount = 567 * 1e18;
-        uint256 initLoanCollat = _collateralFor(amount);
-        uint256 initLoanAmount = amount + _interestFor(amount, INTEREST_RATE, DURATION);
-        uint256 decollatAmount = initLoanCollat * repayAmount / initLoanAmount;
         // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount);
@@ -455,5 +447,91 @@ contract CoolerTest is Test {
         (,, uint256 loanRepaid,,,,) = cooler.loans(loanID);
         // check: loan storage
         assertEq(0, loanRepaid);
+    }
+
+    // -- Cooler: Toggle Direct ---------------------------------------------------
+
+    function test_toggleDirect() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.startPrank(lender);
+        // turn direct repay off
+        cooler.toggleDirect(loanID);
+        (,,,,,, bool repayDirect) = cooler.loans(loanID);
+        // check: loan storage
+        assertEq(false, repayDirect);
+        
+        // turn direct repay on
+        cooler.toggleDirect(loanID);
+        (,,,,,, repayDirect) = cooler.loans(loanID);
+        // check: loan storage
+        assertEq(true, repayDirect);
+        vm.stopPrank();
+    }
+
+    function testRevert_toggleDirect_onlyLender() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(others);
+        // only lender turn toggle the direct repay
+        vm.expectRevert(Cooler.OnlyApproved.selector);
+        cooler.toggleDirect(loanID);
+    }
+
+    // -- Cooler: Defaulted ---------------------------------------------------
+
+    function test_defaulted() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        // block.timestamp > loan expiry
+        vm.warp(block.timestamp + DURATION + 1);
+
+        vm.prank(lender);
+        cooler.defaulted(loanID);
+
+        (, uint256 loanAmount, uint256 loanRepaid, uint256 loanCollat, uint256 loanExpiry, address loanLender, bool repayDirect) = cooler.loans(loanID);
+        // check: loan storage
+        assertEq(0, loanAmount);
+        assertEq(0, loanRepaid);
+        assertEq(0, loanCollat);
+        assertEq(0, loanExpiry);
+        assertEq(address(0), loanLender);
+        assertEq(false, repayDirect);
+    }
+
+    function testRevert_defaulted_notExpired() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        // block.timestamp <= loan expiry
+        vm.warp(block.timestamp + DURATION);
+
+        vm.prank(lender);
+        // can't default a non-expired loan
+        vm.expectRevert(Cooler.NoDefault.selector);
+        cooler.defaulted(loanID);
     }
 }
