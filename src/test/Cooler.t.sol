@@ -48,15 +48,15 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 // [X] defaulted
 //     [X] only possible after expiry
 //     [X] lender and cooler new collateral balances are correct
-// [ ] delegate
-//     [ ] only owner can delegate
-//     [ ] collateral voting power is properly delegated
-// [ ] approve
-//     [ ] only the lender can approve a transfer
-//     [ ] approval stored
-// [ ] transfer
-//     [ ] only the approved addresses can transfer
-//     [ ] loan is properly updated
+// [X] delegate
+//     [X] only owner can delegate
+//     [X] collateral voting power is properly delegated
+// [X] approve
+//     [X] only the lender can approve a transfer
+//     [X] approval stored
+// [X] transfer
+//     [X] only the approved addresses can transfer
+//     [X] loan is properly updated
 
 
 contract CoolerTest is Test {
@@ -537,15 +537,6 @@ contract CoolerTest is Test {
 
     // -- Cooler: Delegate ---------------------------------------------------
 
-// [ ] delegate
-//     [ ] only owner can delegate
-//     [ ] collateral voting power is properly delegated
-// [ ] approve
-//     [ ] only the lender can approve a transfer
-//     [ ] approval stored
-// [ ] transfer
-//     [ ] only the approved addresses can transfer
-//     [ ] loan is properly updated
     function test_delegate() public {
         // test inputs
         uint256 amount = 1234 * 1e18;
@@ -570,5 +561,72 @@ contract CoolerTest is Test {
         cooler.delegate(others);
     }
 
+    // -- Cooler: Approve ---------------------------------------------------
 
+    function test_approve() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(lender);
+        cooler.approve(others, loanID);
+
+        assertEq(others, cooler.approvals(loanID));
+    }
+
+    function testRevert_approve_onlyLender() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(others);
+        vm.expectRevert(Cooler.OnlyApproved.selector);
+        cooler.approve(others, loanID);
+    }
+
+    // -- Cooler: Transfer ---------------------------------------------------
+
+    function test_transfer() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        // the lender approves the transfer
+        vm.prank(lender);
+        cooler.approve(others, loanID);
+        // the transfer is accepted
+        vm.prank(others);
+        cooler.transfer(loanID);
+
+        (,,,,, address loanLender,) = cooler.loans(loanID);
+        // check: loan storage
+        assertEq(others, loanLender);
+        assertEq(address(0), cooler.approvals(loanID));
+    }
+
+    function testRevert_transfer_onlyApproved() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(others);
+        vm.expectRevert(Cooler.OnlyApproved.selector);
+        cooler.transfer(loanID);
+    }
 }
