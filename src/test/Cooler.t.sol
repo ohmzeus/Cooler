@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 import {UserFactory} from "test/lib/UserFactory.sol";
 
-import {MockERC20} from "test/mocks/OlympusMocks.sol";
+import {MockERC20, MockGohm} from "test/mocks/OlympusMocks.sol";
 
 import {Cooler} from "src/Cooler.sol";
 import {CoolerFactory} from "src/CoolerFactory.sol";
@@ -61,7 +61,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 
 contract CoolerTest is Test {
 
-    MockERC20 internal collateral;
+    MockGohm internal collateral;
     MockERC20 internal debt;
     
     address owner;
@@ -88,7 +88,7 @@ contract CoolerTest is Test {
         vm.warp(51 * 365 * 24 * 60 * 60); // Set timestamp at roughly Jan 1, 2021 (51 years since Unix epoch)
 
         // Deploy mocks 
-        collateral = new MockERC20("Collateral", "COLLAT", 18);
+        collateral = new MockGohm("Collateral", "COLLAT", 18);
         debt = new MockERC20("Debt", "DEBT", 18);
 
         // Create accounts
@@ -534,4 +534,41 @@ contract CoolerTest is Test {
         vm.expectRevert(Cooler.NoDefault.selector);
         cooler.defaulted(loanID);
     }
+
+    // -- Cooler: Delegate ---------------------------------------------------
+
+// [ ] delegate
+//     [ ] only owner can delegate
+//     [ ] collateral voting power is properly delegated
+// [ ] approve
+//     [ ] only the lender can approve a transfer
+//     [ ] approval stored
+// [ ] transfer
+//     [ ] only the approved addresses can transfer
+//     [ ] loan is properly updated
+    function test_delegate() public {
+        // test inputs
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        _requestLoan(amount);
+
+        vm.prank(owner);
+        cooler.delegate(others);
+        assertEq(others, collateral.delegatee());
+    }
+
+    function testRevert_delegate_onlyOwner() public {
+        // test inputs
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        _requestLoan(amount);
+
+        vm.prank(others);
+        vm.expectRevert(Cooler.OnlyApproved.selector);
+        cooler.delegate(others);
+    }
+
+
 }

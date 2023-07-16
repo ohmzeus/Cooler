@@ -14,13 +14,17 @@ interface IDelegate {
 }
 
 contract MockGohm is MockERC20, IDelegate {
-    uint256 index;
+    uint256 public constant index = 10000;
+    address public delegatee;
 
-    constructor(uint256 index_) MockERC20("gOHM", "gOHM", 18) {
-        index = index_;
-    }
+    constructor(
+        string memory name_,
+        string memory symbol_,
+        uint8 decimals_
+    ) MockERC20(name_, symbol_, decimals_) {}
 
-    function delegate(address) public pure returns (bool) {
+    function delegate(address delegatee_) public returns (bool) {
+        delegatee = delegatee_;
         return true;
     }
 
