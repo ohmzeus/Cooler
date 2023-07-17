@@ -50,6 +50,11 @@ contract ClearingHouse is Policy, RolesConsumer {
     uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
 
     uint256 public fundTime; // Timestamp at which rebalancing can occur
+    uint256 public receivables; // Outstanding loan receivables
+                                // Incremented when a loan is made or rolled
+                                // Decremented when a loan is repaid or collateral is burned
+
+    // Initialization
 
     // Initialization
 
@@ -132,6 +137,9 @@ contract ClearingHouse is Policy, RolesConsumer {
         sDai.withdraw(amount, address(this), address(this));
         dai.approve(address(cooler), amount);
         cooler.clear(id, true);
+
+        // Increment loan receivables
+        receivables += loanForCollateral(collateral);
     }
 
     /// @notice provide terms for loan rollover
@@ -153,11 +161,24 @@ contract ClearingHouse is Policy, RolesConsumer {
         // Roll loan
         gOHM.approve(address(cooler), newCollateral);
         cooler.roll(id);
+
+        // Increment loan receivables
+        receivables += loanForCollateral(newCollateral);
+    }
+
+    /// @notice callback to decrement loan receivables
+    /// @param loanID of loan
+    /// @param amount repaid
+    function repay(uint256 loanID, uint256 amount) external {
+        // Validate caller is cooler
+        if (!factory.created(msg.sender)) revert OnlyFromFactory();
+        if (Cooler(msg.sender).loans[loanID].lender) revert BadEscrow();
+
+        // Decrement loan receivables
+        receivables -= amount;
     }
 
     // Funding
-
-    // TODO can use TRSRY debt functions instead
 
     /// @notice fund loan liquidity from treasury
     function rebalance() external {
@@ -209,5 +230,19 @@ contract ClearingHouse is Policy, RolesConsumer {
             address(this),
             staking.unstake(address(this), balance, false, false)
         );
+
+        // Decrement loan receivables
+        receivables -= loanForCollateral(balance);
+    }
+
+    // View functions
+    
+    /// @notice view function computing loan for a collateral amount
+    /// @param collateral amount of gOHM collateral
+    function loanForCollateral(uint256 collateral) public pure returns (uint256) {
+        uint256 interestPercent = (INTEREST_RATE * DURATION) / 365 days;
+        uint256 loan = collateral * LOAN_TO_COLLATERAL / 1e18;
+        uint256 interest = loan * interestPercent / 1e18;
+        return loan + interest;
     }
 }
