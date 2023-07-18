@@ -9,7 +9,7 @@ import {MockERC4626} from "solmate/test/utils/mocks/MockERC4626.sol";
 import {MockERC20, MockGohm, MockStaking} from "test/mocks/OlympusMocks.sol";
 
 import {Permissions, Keycode, toKeycode, fromKeycode} from "olympus-v3/Kernel.sol";
-import {Kernel, RolesAdmin} from "olympus-v3/policies/RolesAdmin.sol";
+import {Kernel, Actions, RolesAdmin} from "olympus-v3/policies/RolesAdmin.sol";
 import {OlympusRoles} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol";
 import {OlympusTreasury, TRSRYv1} from "olympus-v3/modules/TRSRY/OlympusTreasury.sol";
@@ -101,6 +101,12 @@ contract ClearingHouseTest is Test {
             address(coolerFactory),
             address(kernel)
         );
+    
+        // Install Modules and activate Policies
+        kernel.executeAction(Actions.InstallModule, address(ROLES));
+        kernel.executeAction(Actions.InstallModule, address(TRSRY));
+        kernel.executeAction(Actions.InstallModule, address(MINTR));
+        kernel.executeAction(Actions.ActivatePolicy, address(rolesAdmin));
     }
 
     // -- ClearingHouse Setup and Permissions -------------------------------------------------
