@@ -305,9 +305,11 @@ contract Cooler {
     /// @param loanID of loan to roll
     function newCollateralFor(uint256 loanID) public view returns (uint256) {
         Loan memory loan = loans[loanID];
+        uint256 neededCollateral = collateralFor(loan.amount, loan.request.loanToCollateral);
         return
-            collateralFor(loan.amount, loan.request.loanToCollateral) -
-            loan.collateral;
+            neededCollateral > loan.collateral ?
+            neededCollateral - loan.collateral :
+            0;
     }
 
     /// @notice compute interest cost on amount for duration at given annualized rate
