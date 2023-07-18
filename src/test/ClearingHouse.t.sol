@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Unlicense
-pragma solidity >=0.8.0;
+pragma solidity 0.8.15;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 import {UserFactory} from "test/lib/UserFactory.sol";
 
+import {MockERC4626} from "solmate/test/utils/mocks/MockERC4626.sol";
 import {MockERC20, MockGohm, MockStaking} from "test/mocks/OlympusMocks.sol";
 
-import {Kernel, Permissions, Keycode, toKeycode, fromKeycode} from "olympus-v3/Kernel.sol";
-import {RolesAdmin} from "olympus-v3/policies/RolesAdmin.sol";
+import {Permissions, Keycode, toKeycode, fromKeycode} from "olympus-v3/Kernel.sol";
+import {Kernel, RolesAdmin} from "olympus-v3/policies/RolesAdmin.sol";
 import {OlympusRoles} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol";
 import {OlympusTreasury, TRSRYv1} from "olympus-v3/modules/TRSRY/OlympusTreasury.sol";
@@ -46,8 +47,9 @@ contract ClearingHouseTest is Test {
 
     MockGohm internal gohm;
     MockERC20 internal ohm;
+    MockERC20 internal dai;
     MockERC20 internal sohm;
-    MockERC20 internal reserve;
+    MockERC4626 internal sDai;
     MockStaking internal staking;
 
     Kernel internal kernel;
@@ -67,7 +69,7 @@ contract ClearingHouseTest is Test {
     uint256 public constant DURATION = 121 days; // Four months
     uint256 public constant FUND_CADENCE = 7 days; // One week
     uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
-/*
+
     function setUp() public {
         vm.warp(51 * 365 * 24 * 60 * 60); // Set timestamp at roughly Jan 1, 2021 (51 years since Unix epoch)
 
@@ -78,10 +80,11 @@ contract ClearingHouseTest is Test {
         policy = users[1];
 
         // Deploy mocks 
-        gohm = new MockGohm(260);
         ohm = new MockERC20("OHM", "OHM", 9);
+        dai = new MockERC20("DAI", "DAI", 18);
         sohm = new MockERC20("sOHM", "sOHM", 9);
-        reserve = new MockERC20("DSR DAI", "sDAI", 18);
+        gohm = new MockGohm("gOHM", "gOHM", 18);
+        sDai = new MockERC4626(dai, "DSR DAI", "sDAI");
         staking = new MockStaking(address(ohm), address(sohm), address(gohm), 2200, 0, 2200);
 
         // Deploy system contracts
@@ -94,13 +97,14 @@ contract ClearingHouseTest is Test {
         clearingHouse = new ClearingHouse(
             address(gohm),
             address(staking),
-            address(reserve),
+            address(sDai),
             address(coolerFactory),
             address(kernel)
         );
     }
 
     // -- ClearingHouse Setup and Permissions -------------------------------------------------
+    
     function test_configureDependencies() public {
         Keycode[] memory expectedDeps = new Keycode[](3);
         expectedDeps[0] = toKeycode("TRSRY");
@@ -129,5 +133,4 @@ contract ClearingHouseTest is Test {
             assertEq(perms[i].funcSelector, expectedPerms[i].funcSelector);
         }
     }
-*/
 }
