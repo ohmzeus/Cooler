@@ -2,11 +2,19 @@
 pragma solidity ^0.8.0;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {ClonesWithImmutableArgs} from "clones/ClonesWithImmutableArgs.sol";
 
 import {Cooler} from "./Cooler.sol";
 
 /// @notice the Cooler Factory creates new Cooler escrow contracts
+///
+/// @dev This contract uses Clones (https://github.com/wighawag/clones-with-immutable-args)
+///      to save gas on deployment
 contract CoolerFactory {
+    using ClonesWithImmutableArgs for address;
+
+    // -- EVENTS -----------------------------------------------------
+
     // A global event when a loan request is created
     event Request(
         address cooler,
@@ -21,6 +29,11 @@ contract CoolerFactory {
     // A global event when a loan is repaid
     event Repay(address cooler, uint256 loanID, uint256 amount);
 
+    // -- STATE VARIABLES --------------------------------------------
+
+    // Cooler reference implementation (deployed on creation to clone from)
+    Cooler public immutable coolerImplementation;
+
     // Mapping to validate deployed coolers
     mapping(address => bool) public created;
 
@@ -30,6 +43,14 @@ contract CoolerFactory {
 
     // Mapping to query Coolers for Collateral-Debt pair
     mapping(ERC20 => mapping(ERC20 => address[])) public coolersFor;
+
+    // -- INITIALIZATION ---------------------------------------------
+
+    constructor() {
+        coolerImplementation = new Cooler();
+    }
+
+    // -- DEPLOY NEW COOLERS -----------------------------------------
 
     /// @notice creates a new Escrow contract for collateral and debt tokens
     function generate(
@@ -41,12 +62,20 @@ contract CoolerFactory {
 
         // Otherwise generate new cooler
         if (cooler == address(0)) {
-            cooler = address(new Cooler(msg.sender, collateral, debt));
+            bytes memory coolerData = abi.encodePacked(
+                msg.sender,             // owner
+                address(collateral),    // collateral
+                address(debt),          // debt
+                address(this)           // factory
+            );
+            cooler = address(coolerImplementation).clone(coolerData);
             coolerFor[msg.sender][collateral][debt] = cooler;
             coolersFor[collateral][debt].push(cooler);
             created[cooler] = true;
         }
     }
+
+    // -- EMIT EVENTS ------------------------------------------------
 
     enum Events {
         Request,
