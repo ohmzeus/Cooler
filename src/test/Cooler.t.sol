@@ -37,14 +37,14 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 // [X] toggleDirect
 //     [X] only the lender can toggle
 //     [X] loan is properly updated
-// [ ] roll
-//     [ ] only possible before expiry
-//     [ ] only possible for active loans
-//     [ ] loan is updated
-//     [ ] user and cooler new collateral balances are correct
-// [ ] provideNewTermsForRoll
-//     [ ] only lender can set new terms
-//     [ ] request is properly updated
+// [X] roll
+//     [X] only possible before expiry
+//     [X] only possible for active loans
+//     [X] loan is updated
+//     [X] user and cooler new collateral balances are correct
+// [X] provideNewTermsForRoll
+//     [X] only lender can set new terms
+//     [X] request is properly updated
 // [X] defaulted
 //     [X] only possible after expiry
 //     [X] lender and cooler new collateral balances are correct
@@ -57,7 +57,6 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 // [X] transfer
 //     [X] only the approved addresses can transfer
 //     [X] loan is properly updated
-
 
 contract CoolerTest is Test {
 
@@ -323,7 +322,6 @@ contract CoolerTest is Test {
         // balances after clearing the loan
         uint256 initOwnerDebt = debt.balanceOf(owner);
         uint256 initLenderDebt = debt.balanceOf(lender);
-        //uint256 initCoolerDebt = debt.balanceOf(address(cooler));
         uint256 initOwnerCollat = collateral.balanceOf(owner);
         uint256 initCoolerCollat = collateral.balanceOf(address(cooler));
 
@@ -333,7 +331,7 @@ contract CoolerTest is Test {
         cooler.repay(loanID, repayAmount);
         vm.stopPrank();
 
-        // check: debt balances
+        // check: debt and collateral balances
         assertEq(debt.balanceOf(owner), initOwnerDebt - repayAmount);
         assertEq(debt.balanceOf(lender), initLenderDebt + repayAmount);
         assertEq(collateral.balanceOf(owner), initOwnerCollat + decollatAmount);
@@ -375,7 +373,7 @@ contract CoolerTest is Test {
         cooler.repay(loanID, repayAmount);
         vm.stopPrank();
 
-        // check: debt balances
+        // check: debt and collateral balances
         assertEq(debt.balanceOf(owner), initOwnerDebt - repayAmount);
         assertEq(debt.balanceOf(address(cooler)), initCoolerDebt + repayAmount);
         assertEq(collateral.balanceOf(owner), initOwnerCollat + decollatAmount);
@@ -628,5 +626,133 @@ contract CoolerTest is Test {
         vm.prank(others);
         vm.expectRevert(Cooler.OnlyApproved.selector);
         cooler.transfer(loanID);
+    }
+
+    // -- Cooler: New Roll Terms---------------------------------------------------
+
+    function test_newRollTerms() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(lender);
+        cooler.provideNewTermsForRoll(
+            loanID,
+            INTEREST_RATE * 2,
+            LOAN_TO_COLLATERAL / 2,
+            DURATION * 2
+        );
+
+        (Cooler.Request memory request, uint256 loanAmount,,,,,) = cooler.loans(loanID);
+        // check: request storage
+        assertEq(loanAmount, request.amount);
+        assertEq(INTEREST_RATE * 2, request.interest);
+        assertEq(LOAN_TO_COLLATERAL / 2, request.loanToCollateral);
+        assertEq(DURATION * 2, request.duration);
+        assertEq(true, request.active);
+    }
+
+    function testRevert_newRollTerms_onlyLender() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(others);
+        vm.expectRevert(Cooler.OnlyApproved.selector);
+        cooler.provideNewTermsForRoll(
+            loanID,
+            INTEREST_RATE * 2,
+            LOAN_TO_COLLATERAL / 2,
+            DURATION * 2
+        );
+    }
+
+    // -- Cooler: Roll ---------------------------------------------------
+
+    function test_roll() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+
+        vm.prank(lender);
+        cooler.provideNewTermsForRoll(
+            loanID,
+            INTEREST_RATE * 2,
+            LOAN_TO_COLLATERAL / 2,
+            DURATION * 2
+        );
+        
+        { // block scoping to prevent "stack too deep" compiler error
+        // balances after providing new terms to roll the loan
+        uint256 initOwnerCollat = collateral.balanceOf(owner);
+        uint256 initCoolerCollat = collateral.balanceOf(address(cooler));
+        // aux calculations to get the newCollat amount after rolling the loan
+        (, uint256 loanAmount,, uint256 loanCollat,,,) = cooler.loans(loanID);
+        uint256 rollCollat = loanAmount * DECIMALS / (LOAN_TO_COLLATERAL / 2);
+        uint256 newCollat = rollCollat > loanCollat ? rollCollat - loanCollat : 0;
+   
+        vm.startPrank(owner);
+        // aprove collateral so that it can be transferred by cooler
+        collateral.approve(address(cooler), newCollat);
+        cooler.roll(loanID);
+        vm.stopPrank();
+
+        // check: debt balances
+        assertEq(collateral.balanceOf(owner), initOwnerCollat - newCollat);
+        assertEq(collateral.balanceOf(address(cooler)), initCoolerCollat + newCollat);
+        }
+    }
+
+    function testRevert_roll_onlyActive() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+   
+        vm.prank(owner);
+        // not rollable unless lender provides new terms for rolling
+        vm.expectRevert(Cooler.NotRollable.selector);
+        cooler.roll(loanID);
+    }
+
+    function testRevert_roll_defaulted() public {
+        // test inputs
+        bool directRepay = true;
+        uint256 amount = 1234 * 1e18;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount);
+        uint256 loanID = _clearLoan(reqID, amount, directRepay);
+   
+        vm.prank(lender);
+        cooler.provideNewTermsForRoll(
+            loanID,
+            INTEREST_RATE * 2,
+            LOAN_TO_COLLATERAL / 2,
+            DURATION * 2
+        );
+        
+        // block.timestamp > loan expiry
+        vm.warp(block.timestamp + DURATION * 2 + 1);
+
+        vm.prank(owner);
+        // can't roll an expired loan
+        vm.expectRevert(Cooler.Default.selector);
+        cooler.roll(loanID);
     }
 }

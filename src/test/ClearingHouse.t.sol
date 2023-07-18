@@ -7,7 +7,7 @@ import {UserFactory} from "test/lib/UserFactory.sol";
 
 import {MockERC20, MockGohm, MockStaking} from "test/mocks/OlympusMocks.sol";
 
-import "olympus-v3/Kernel.sol";
+import {Kernel, Permissions, Keycode, toKeycode, fromKeycode} from "olympus-v3/Kernel.sol";
 import {RolesAdmin} from "olympus-v3/policies/RolesAdmin.sol";
 import {OlympusRoles} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol";
@@ -129,5 +129,5 @@ contract ClearingHouseTest is Test {
             assertEq(perms[i].funcSelector, expectedPerms[i].funcSelector);
         }
     }
-    */
+*/
 }
