@@ -8,6 +8,10 @@ import {Clone} from "clones/Clone.sol";
 import {CoolerFactory} from "./CoolerFactory.sol";
 import {IDelegate} from "./IDelegate.sol";
 
+interface IClearinghouse {
+    function repay(uint256 loanID, uint256 amount) external;
+}
+
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
 ///         for a specific user and debt-collateral pair.
 ///
@@ -47,6 +51,7 @@ contract Cooler is Clone {
         uint256 expiry; // the time when the loan defaults,
         address lender; // and the lender's address.
         bool repayDirect; // If this is false, repaid tokens must be claimed by lender.
+        bool repayCallback; // If this is true, call repay() function on lender address.
     }
 
     // -- STATE VARIABLES --------------------------------------------
@@ -147,6 +152,8 @@ contract Cooler is Clone {
 
         debt().safeTransferFrom(msg.sender, repayTo, repaid);
         collateral().safeTransfer(owner(), decollateralized);
+
+        if (loan.repayCallback) IClearinghouse(loan.lender).repay(loanID, repaid);
     }
 
     /// @notice claim debt tokens for lender if repayDirect was false
@@ -199,10 +206,12 @@ contract Cooler is Clone {
     /// @notice fill a requested loan as a lender
     /// @param reqID index of request in requests[]
     /// @param repayDirect lender should input false if concerned about debt token blacklisting
+    /// @param repayCallback lender can insert callback at end for accounting
     /// @return loanID index of loan in loans[]
     function clear(
         uint256 reqID,
-        bool repayDirect
+        bool repayDirect,
+        bool repayCallback
     ) external returns (uint256 loanID) {
         Request storage req = requests[reqID];
 
@@ -224,10 +233,14 @@ contract Cooler is Clone {
                 collat,
                 expiration,
                 msg.sender,
-                repayDirect
+                repayDirect,
+                repayCallback
             )
         );
         debt().safeTransferFrom(msg.sender, owner(), req.amount);
+
+        // Validate callback
+        if (repayCallback) IClearinghouse(msg.sender).repay(loanID, 0);
     }
 
     /// @notice provide terms for loan to roll over
