@@ -16,7 +16,7 @@ interface IClearinghouse {
 contract Cooler {
     using SafeTransferLib for ERC20;
 
-    // Errors
+    // --- ERRORS ----------------------------------------------------
 
     error OnlyApproved();
     error Deactivated();
@@ -25,7 +25,7 @@ contract Cooler {
     error NotRollable();
     error ZeroCollateralReturned();
 
-    // Data Structures
+    // --- DATA STRUCTURES -------------------------------------------
 
     Request[] public requests;
     struct Request {
@@ -53,7 +53,7 @@ contract Cooler {
     // Facilitates transfer of lender ownership to new address
     mapping(uint256 => address) public approvals;
 
-    // Immutables
+    // --- IMMUTABLES ------------------------------------------------
 
     // This address owns the collateral in escrow.
     address private immutable owner;
@@ -67,7 +67,7 @@ contract Cooler {
     // This makes the code look prettier.
     uint256 private constant DECIMALS = 1e18;
 
-    // Initialization
+    // --- INITIALIZATION --------------------------------------------
 
     constructor(address o, ERC20 c, ERC20 d) {
         owner = o;
@@ -76,7 +76,7 @@ contract Cooler {
         factory = CoolerFactory(msg.sender);
     }
 
-    // Borrower
+    // --- BORROWER --------------------------------------------------
 
     /// @notice request a loan with given parameters
     /// @notice collateral is taken at time of request
@@ -193,7 +193,7 @@ contract Cooler {
         IDelegate(address(collateral)).delegate(to);
     }
 
-    // Lender
+    // --- LENDER ----------------------------------------------------
 
     /// @notice fill a requested loan as a lender
     /// @param reqID index of request in requests[]
@@ -302,7 +302,7 @@ contract Cooler {
         loan.repayDirect = !loan.repayDirect;
     }
 
-    // Views
+    // --- AUX FUNCTIONS ---------------------------------------------
 
     /// @notice compute collateral needed for loan amount at given loan to collateral ratio
     /// @param amount of collateral tokens

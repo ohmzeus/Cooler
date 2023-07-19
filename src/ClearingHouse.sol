@@ -20,28 +20,29 @@ interface IStaking {
 }
 
 contract ClearingHouse is Policy, RolesConsumer {
-    // Errors
+
+    // --- ERRORS ----------------------------------------------------
 
     error OnlyFromFactory();
     error BadEscrow();
     error DurationMaximum();
     error OnlyBurnable();
     error TooEarlyToFund();
-
-    // Relevant Contracts
+    
+    // --- RELEVANT CONTRACTS ----------------------------------------
 
     CoolerFactory public immutable factory;
     ERC20 public immutable dai;
     ERC4626 public immutable sDai;
     ERC20 public immutable gOHM;
     IStaking public immutable staking;
-
-    // Modules
+    
+    // --- MODULES ---------------------------------------------------
 
     TRSRYv1 public TRSRY;
     MINTRv1 public MINTR;
 
-    // Parameter Bounds
+    // --- PARAMETER BOUNDS ------------------------------------------
 
     uint256 public constant INTEREST_RATE = 5e15; // 0.5%
     uint256 public constant LOAN_TO_COLLATERAL = 3000 * 1e18; // 3,000
@@ -54,9 +55,7 @@ contract ClearingHouse is Policy, RolesConsumer {
                                 // Incremented when a loan is made or rolled
                                 // Decremented when a loan is repaid or collateral is burned
 
-    // Initialization
-
-    // Initialization
+    // --- INITIALIZATION --------------------------------------------
 
     constructor(
         address gohm_,
@@ -109,12 +108,12 @@ contract ClearingHouse is Policy, RolesConsumer {
         requests[2] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
-    // Operation
+    // --- OPERATION -------------------------------------------------
 
     /// @notice lend to a cooler
     /// @param cooler to lend to
     /// @param amount of DAI to lend
-    function lend(Cooler cooler, uint256 amount) external {
+    function lend(Cooler cooler, uint256 amount) external returns (uint256) {
         // Validate
         if (!factory.created(address(cooler))) revert OnlyFromFactory();
         if (cooler.collateral() != gOHM || cooler.debt() != dai)
@@ -126,7 +125,7 @@ contract ClearingHouse is Policy, RolesConsumer {
 
         // Create loan request
         gOHM.approve(address(cooler), collateral);
-        uint256 id = cooler.request(
+        uint256 reqID = cooler.request(
             amount,
             INTEREST_RATE,
             LOAN_TO_COLLATERAL,
@@ -136,10 +135,12 @@ contract ClearingHouse is Policy, RolesConsumer {
         // Clear loan request by providing enough DAI
         sDai.withdraw(amount, address(this), address(this));
         dai.approve(address(cooler), amount);
-        cooler.clear(id, true);
+        uint256 loanID = cooler.clear(reqID, true, true);
 
         // Increment loan receivables
         receivables += loanForCollateral(collateral);
+        
+        return loanID;
     }
 
     /// @notice provide terms for loan rollover
@@ -172,13 +173,15 @@ contract ClearingHouse is Policy, RolesConsumer {
     function repay(uint256 loanID, uint256 amount) external {
         // Validate caller is cooler
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
-        if (Cooler(msg.sender).loans[loanID].lender) revert BadEscrow();
+        // Validate lender is not address(0)
+        (,,,,, address lender,,) = Cooler(msg.sender).loans(loanID);
+        if (lender == address(0)) revert BadEscrow();
 
         // Decrement loan receivables
         receivables -= amount;
     }
 
-    // Funding
+    // --- FUNDING ---------------------------------------------------
 
     /// @notice fund loan liquidity from treasury
     function rebalance() external {
@@ -235,7 +238,7 @@ contract ClearingHouse is Policy, RolesConsumer {
         receivables -= loanForCollateral(balance);
     }
 
-    // View functions
+    // --- AUX FUNCTIONS ---------------------------------------------
     
     /// @notice view function computing loan for a collateral amount
     /// @param collateral amount of gOHM collateral

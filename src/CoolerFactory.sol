@@ -7,6 +7,9 @@ import {Cooler} from "./Cooler.sol";
 
 /// @notice the Cooler Factory creates new Cooler escrow contracts
 contract CoolerFactory {
+
+    // --- EVENTS ----------------------------------------------------
+
     // A global event when a loan request is created
     event Request(
         address cooler,
@@ -31,6 +34,8 @@ contract CoolerFactory {
     // Mapping to query Coolers for Collateral-Debt pair
     mapping(ERC20 => mapping(ERC20 => address[])) public coolersFor;
 
+    // --- INITIALIZATION --------------------------------------------
+
     /// @notice creates a new Escrow contract for collateral and debt tokens
     function generate(
         ERC20 collateral,
@@ -47,6 +52,8 @@ contract CoolerFactory {
             created[cooler] = true;
         }
     }
+
+    // --- EMIT EVENTS -----------------------------------------------
 
     enum Events {
         Request,
