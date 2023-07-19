@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: Unlicense
-pragma solidity 0.8.15;
+pragma solidity >=0.8.0;
 
 import {Test} from "forge-std/Test.sol";
-import {console2} from "forge-std/console2.sol";
+import {console2 as console} from "forge-std/console2.sol";
 import {UserFactory} from "test/lib/UserFactory.sol";
 
+//import {MockERC20, MockGohm, MockStaking} from "test/mocks/OlympusMocks.sol";
+import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC4626} from "solmate/test/utils/mocks/MockERC4626.sol";
-import {MockERC20, MockGohm, MockStaking} from "test/mocks/OlympusMocks.sol";
 
-import {Permissions, Keycode, toKeycode, fromKeycode} from "olympus-v3/Kernel.sol";
-import {Kernel, Actions, RolesAdmin} from "olympus-v3/policies/RolesAdmin.sol";
-import {OlympusRoles} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
+import {RolesAdmin, Kernel, Actions} from "olympus-v3/policies/RolesAdmin.sol";
+import {OlympusRoles, ROLESv1} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol";
 import {OlympusTreasury, TRSRYv1} from "olympus-v3/modules/TRSRY/OlympusTreasury.sol";
+//import {Actions} from "olympus-v3/Kernel.sol";
 
 import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 
@@ -26,7 +27,7 @@ import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 // [ ] rebalance
 //     [ ] can't rebalance faster than the funding cadence
 //     [ ] Treasury approvals for the clearing house are correct
-//     [ ] if necessary, sends excees DSR funds back to the Treasury
+//     [ ] if necessary, sends excess DSR funds back to the Treasury
 // [ ] sweep
 //     [ ] excess DAI is deposited into DSR
 // [ ] defund
@@ -43,100 +44,160 @@ import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 // [ ] burn
 //     [ ] OHM supply is properly reduced
 
-contract ClearingHouseTest is Test {
+contract MockStaking {
+    function unstake(
+        address,
+        uint256 amount,
+        bool,
+        bool
+    ) external returns (uint256) {
+        return amount;
+    }
+}
 
-    MockGohm internal gohm;
+/// @dev Although we are have sDAI in the treasury, the sDAI will be equal to
+///      DAI values everytime we convert between them. This is because no external
+///      DAI is being added to the sDAI vault, so the exchange rate is 1:1. This
+///      does not cause any issues with our testing.
+contract ClearingHouseTest is Test {
+    MockERC20 internal gohm;
     MockERC20 internal ohm;
     MockERC20 internal dai;
-    MockERC20 internal sohm;
-    MockERC4626 internal sDai;
-    MockStaking internal staking;
+    MockERC4626 internal sdai;
 
-    Kernel internal kernel;
+    Kernel public kernel;
     OlympusRoles internal ROLES;
     OlympusMinter internal MINTR;
     OlympusTreasury internal TRSRY;
     RolesAdmin internal rolesAdmin;
-    ClearingHouse internal clearingHouse;
-    CoolerFactory internal coolerFactory;
+    ClearingHouse internal clearinghouse;
+    CoolerFactory internal factory;
+    Cooler internal testCooler;
 
-    address internal admin;
-    address internal policy;
-
-    // Parameter Bounds
-    uint256 public constant INTEREST_RATE = 5e15; // 0.5%
-    uint256 public constant LOAN_TO_COLLATERAL = 3000 * 1e18; // 3,000
-    uint256 public constant DURATION = 121 days; // Four months
-    uint256 public constant FUND_CADENCE = 7 days; // One week
-    uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
+    address internal randomWallet;
+    address internal overseer;
+    uint256 internal initialSDai;
 
     function setUp() public {
-        vm.warp(51 * 365 * 24 * 60 * 60); // Set timestamp at roughly Jan 1, 2021 (51 years since Unix epoch)
+        address[] memory users = (new UserFactory()).create(2);
+        randomWallet = users[0];
+        overseer = users[1];
 
-        // Create accounts
-        UserFactory userFactory = new UserFactory();
-        address[] memory users = userFactory.create(2);
-        admin = users[0];
-        policy = users[1];
+        MockStaking staking = new MockStaking();
+        factory = new CoolerFactory();
 
-        // Deploy mocks 
-        ohm = new MockERC20("OHM", "OHM", 9);
-        dai = new MockERC20("DAI", "DAI", 18);
-        sohm = new MockERC20("sOHM", "sOHM", 9);
-        gohm = new MockGohm("gOHM", "gOHM", 18);
-        sDai = new MockERC4626(dai, "DSR DAI", "sDAI");
-        staking = new MockStaking(address(ohm), address(sohm), address(gohm), 2200, 0, 2200);
+        ohm = new MockERC20("olympus", "OHM", 9);
+        gohm = new MockERC20("olympus", "gOHM", 18);
+        dai = new MockERC20("dai", "DAI", 18);
+        sdai = new MockERC4626(dai, "sDai", "sDAI");
 
-        // Deploy system contracts
-        kernel = new Kernel();
-        ROLES = new OlympusRoles(kernel);
+        kernel = new Kernel(); // this contract will be the executor
+
         TRSRY = new OlympusTreasury(kernel);
         MINTR = new OlympusMinter(kernel, address(ohm));
-        rolesAdmin = new RolesAdmin(kernel);
-        coolerFactory = new CoolerFactory();
-        clearingHouse = new ClearingHouse(
+        ROLES = new OlympusRoles(kernel);
+
+        clearinghouse = new ClearingHouse(
             address(gohm),
             address(staking),
-            address(sDai),
-            address(coolerFactory),
+            address(sdai),
+            address(factory),
             address(kernel)
         );
-    
-        // Install Modules and activate Policies
-        kernel.executeAction(Actions.InstallModule, address(ROLES));
+        rolesAdmin = new RolesAdmin(kernel);
+
         kernel.executeAction(Actions.InstallModule, address(TRSRY));
         kernel.executeAction(Actions.InstallModule, address(MINTR));
+        kernel.executeAction(Actions.InstallModule, address(ROLES));
+
+        kernel.executeAction(Actions.ActivatePolicy, address(clearinghouse));
         kernel.executeAction(Actions.ActivatePolicy, address(rolesAdmin));
+
+        /// Configure access control
+        rolesAdmin.grantRole("cooler_overseer", overseer);
+
+        // Setup clearinghouse initial conditions
+        uint mintAmount = 200_000_000e18; // Init treasury with 200 million
+
+        dai.mint(address(TRSRY), mintAmount);
+        //dai.approve(address(sdai), dai.balanceOf(address(this)));
+        //sdai.deposit(dai.balanceOf(address(this)), address(TRSRY));
+
+        // Initial rebalance, fund clearinghouse and set
+        // fundTime to current timestamp
+        clearinghouse.rebalance();
+        testCooler = Cooler(factory.generate(gohm, dai));
+
+        gohm.mint(overseer, mintAmount);
+
+        // Skip 1 week ahead to allow rebalances
+        skip(1 weeks + 1);
+
+        // Initial funding of clearinghouse is equal to FUND_AMOUNT
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
     }
 
-    // -- ClearingHouse Setup and Permissions -------------------------------------------------
-    
-    function test_configureDependencies() public {
-        Keycode[] memory expectedDeps = new Keycode[](3);
-        expectedDeps[0] = toKeycode("TRSRY");
-        expectedDeps[1] = toKeycode("MINTR");
-        expectedDeps[2] = toKeycode("ROLES");
+    function test_LendToCooler() public {}
 
-        Keycode[] memory deps = clearingHouse.configureDependencies();
-        assertEq(deps.length, expectedDeps.length);
-        assertEq(fromKeycode(deps[0]), fromKeycode(expectedDeps[0]));
-        assertEq(fromKeycode(deps[1]), fromKeycode(expectedDeps[1]));
-        assertEq(fromKeycode(deps[2]), fromKeycode(expectedDeps[2]));
+    function test_RollLoan() public {}
+
+    function test_RebalancePullFunds() public {
+        uint256 oneMillion = 1e24;
+        uint256 daiBal = sdai.maxWithdraw(address(clearinghouse));
+
+        // Burn 1 mil from clearinghouse to simulate assets being lent
+        vm.prank(address(clearinghouse));
+        sdai.withdraw(oneMillion, address(0x0), address(clearinghouse));
+
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiBal - oneMillion);
+
+        // Test if clearinghouse pulls in 1 mil DAI from treasury 
+        uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
+
+        clearinghouse.rebalance();
+        daiBal = sdai.maxWithdraw(address(clearinghouse));
+
+        assertEq(prevTrsryDaiBal - oneMillion, dai.balanceOf(address(TRSRY)));
+        assertEq(daiBal, clearinghouse.FUND_AMOUNT());
     }
 
-    function test_requestPermissions() public {
-        Permissions[] memory expectedPerms = new Permissions[](3);
-        Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
-        Keycode MINTR_KEYCODE = toKeycode("MINTR");
-        expectedPerms[0] = Permissions(TRSRY_KEYCODE, TRSRY.withdrawReserves.selector);
-        expectedPerms[1] = Permissions(TRSRY_KEYCODE, TRSRY.increaseWithdrawApproval.selector);
-        expectedPerms[2] = Permissions(MINTR_KEYCODE, MINTR.burnOhm.selector);
-        
-        Permissions[] memory perms = clearingHouse.requestPermissions();
-        assertEq(perms.length, expectedPerms.length);
-        for (uint256 i = 0; i < perms.length; i++) {
-            assertEq(fromKeycode(perms[i].keycode), fromKeycode(expectedPerms[i].keycode));
-            assertEq(perms[i].funcSelector, expectedPerms[i].funcSelector);
-        }
+    function test_RebalanceReturnFunds() public {
+        uint256 oneMillion = 1e24;
+        uint256 initDaiBal = sdai.maxWithdraw(address(clearinghouse));
+
+        // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
+        dai.mint(address(clearinghouse), oneMillion);
+        clearinghouse.sweep();
+
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), initDaiBal + oneMillion);
+
+        uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
+        uint256 prevDaiBal = sdai.maxWithdraw(address(clearinghouse));
+
+        clearinghouse.rebalance();
+
+        assertEq(prevTrsryDaiBal + oneMillion, dai.balanceOf(address(TRSRY)));
+        assertEq(prevDaiBal - oneMillion, sdai.maxWithdraw(address(clearinghouse)));
     }
+
+    function testRevert_RebalanceEarly() public {
+        vm.expectRevert(ClearingHouse.TooEarlyToFund.selector);
+        clearinghouse.rebalance();
+    }
+
+    // Should be able to rebalance multiple times if past due
+    function test_RebalancePastDue() public {
+        // Already skipped 1 week ahead in setup. Do once more and call rebalance twice.
+        skip(1 weeks);
+        clearinghouse.rebalance();
+        clearinghouse.rebalance();
+    }
+
+    function test_Sweep() public {}
+
+    function test_Defund() public {}
+
+    function test_DefundOnlyOverseer() public {}
+
+    function test_BurnExcess() public {}
 }

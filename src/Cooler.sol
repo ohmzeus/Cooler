@@ -139,8 +139,13 @@ contract Cooler {
         loan.amount -= repaid;
         loan.collateral -= decollateralized;
 
-        address repayTo = loan.repayDirect ? loan.lender : address(this);
-        if (!loan.repayDirect) loan.repaid += repaid;
+        address repayTo;
+        if(!loan.repayDirect) {
+            repayTo = loan.lender;
+        } else {
+            repayTo = address(this);
+            loan.repaid += repaid;
+        }
 
         debt.safeTransferFrom(msg.sender, repayTo, repaid);
         collateral.safeTransfer(owner, decollateralized);

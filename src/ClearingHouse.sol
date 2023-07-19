@@ -10,6 +10,8 @@ import "olympus-v3/Kernel.sol";
 
 import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
 
+import {console2 as console} from "forge-std/console2.sol";
+
 interface IStaking {
     function unstake(
         address to,
@@ -45,10 +47,10 @@ contract ClearingHouse is Policy, RolesConsumer {
     // --- PARAMETER BOUNDS ------------------------------------------
 
     uint256 public constant INTEREST_RATE = 5e15; // 0.5%
-    uint256 public constant LOAN_TO_COLLATERAL = 3000 * 1e18; // 3,000
+    uint256 public constant LOAN_TO_COLLATERAL = 3000e18; // 3,000
     uint256 public constant DURATION = 121 days; // Four months
     uint256 public constant FUND_CADENCE = 7 days; // One week
-    uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
+    uint256 public constant FUND_AMOUNT = 18_000_000e18; // 18 million
 
     uint256 public fundTime; // Timestamp at which rebalancing can occur
     uint256 public receivables; // Outstanding loan receivables
@@ -195,6 +197,10 @@ contract ClearingHouse is Policy, RolesConsumer {
         // Rebalance funds on hand with treasury's reserves
         if (balance < FUND_AMOUNT) {
             uint256 amount = FUND_AMOUNT - balance;
+
+            console.log("ClearingHouse.rebalance: withdrawing %s DAI", amount / 1e18);
+            console.log("clearinghouse balance: ", balance / 1e18);
+            console.log("treasury balance: ", dai.balanceOf(address(TRSRY)) / 1e18);
 
             TRSRY.increaseWithdrawApproval(address(this), dai, amount);
             TRSRY.withdrawReserves(address(this), dai, amount);
