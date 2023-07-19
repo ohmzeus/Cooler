@@ -95,9 +95,9 @@ contract ClearingHouse is Policy, RolesConsumer {
         override
         returns (Permissions[] memory requests)
     {
-        Keycode memory TRSRY_KEYCODE = toKeycode("TRSRY");
+        Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
-        requests = new Permissions[](2);
+        requests = new Permissions[](3);
         requests[0] = Permissions(
             TRSRY_KEYCODE,
             TRSRY.withdrawReserves.selector
