@@ -7,8 +7,8 @@ import {ERC20} from "solmate/tokens/ERC20.sol";
 import {CoolerFactory} from "./CoolerFactory.sol";
 import {IDelegate} from "./IDelegate.sol";
 
-interface IClearinghouse {
-    function repay(uint256 loanID, uint256 amount) external;
+interface ICoolerCallback {
+    function onRepay(uint256 loanID, uint256 amount) external;
 }
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
@@ -139,6 +139,7 @@ contract Cooler {
         loan.amount -= repaid;
         loan.collateral -= decollateralized;
 
+        // Check if repayment needs to be claimed or not
         address repayTo;
         if(!loan.repayDirect) {
             repayTo = loan.lender;
@@ -150,7 +151,7 @@ contract Cooler {
         debt.safeTransferFrom(msg.sender, repayTo, repaid);
         collateral.safeTransfer(owner, decollateralized);
 
-        if (loan.repayCallback) IClearinghouse(loan.lender).repay(loanID, repaid);
+        if (loan.repayCallback) ICoolerCallback(loan.lender).onRepay(loanID, repaid);
     }
 
     /// @notice claim debt tokens for lender if repayDirect was false
@@ -237,7 +238,7 @@ contract Cooler {
         debt.safeTransferFrom(msg.sender, owner, req.amount);
 
         // Validate callback
-        if (repayCallback) IClearinghouse(msg.sender).repay(loanID, 0);
+        if (repayCallback) ICoolerCallback(msg.sender).onRepay(loanID, 0);
     }
 
     /// @notice provide terms for loan to roll over

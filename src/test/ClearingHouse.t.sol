@@ -50,7 +50,7 @@ contract MockStaking {
         uint256 amount,
         bool,
         bool
-    ) external returns (uint256) {
+    ) external pure returns (uint256) {
         return amount;
     }
 }
@@ -74,13 +74,13 @@ contract ClearingHouseTest is Test {
     CoolerFactory internal factory;
     Cooler internal testCooler;
 
-    address internal randomWallet;
+    address internal user;
     address internal overseer;
     uint256 internal initialSDai;
 
     function setUp() public {
         address[] memory users = (new UserFactory()).create(2);
-        randomWallet = users[0];
+        user = users[0];
         overseer = users[1];
 
         MockStaking staking = new MockStaking();
@@ -126,18 +126,63 @@ contract ClearingHouseTest is Test {
         // Initial rebalance, fund clearinghouse and set
         // fundTime to current timestamp
         clearinghouse.rebalance();
+
         testCooler = Cooler(factory.generate(gohm, dai));
 
         gohm.mint(overseer, mintAmount);
 
         // Skip 1 week ahead to allow rebalances
-        skip(1 weeks + 1);
+        skip(1 weeks);
 
         // Initial funding of clearinghouse is equal to FUND_AMOUNT
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
     }
 
-    function test_LendToCooler() public {}
+    function testRevert_LendMaliciousCooler() public {
+        Cooler malicious = new Cooler(address(this), gohm, dai);
+        vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
+        clearinghouse.lend(malicious, 1e18);
+    }
+
+    function testRevert_LendNotGohmDai() public {
+        MockERC20 wagmi = new MockERC20("wagmi", "WAGMI", 18);
+        MockERC20 ngmi = new MockERC20("ngmi", "NGMI", 18);
+
+        Cooler badCooler = Cooler(factory.generate(wagmi, ngmi));
+
+        vm.expectRevert(ClearingHouse.BadEscrow.selector);
+        clearinghouse.lend(badCooler, 1e18);
+    }
+
+    function test_LendToCooler(uint256 gohmAmt_, uint256 daiAmt_) public {
+        //vm.assume(gohmAmt_ > 0);
+        //vm.assume(daiAmt_ > 0);
+        vm.assume(daiAmt_ < clearinghouse.FUND_AMOUNT());
+
+        gohm.mint(user, gohmAmt_);
+
+        vm.startPrank(user);
+        Cooler cooler = Cooler(factory.generate(gohm, dai));
+
+        // Ensure we have enough collateral
+        uint256 gohmNeeded = cooler.collateralFor(daiAmt_, clearinghouse.LOAN_TO_COLLATERAL());
+        vm.assume(gohmNeeded < gohmAmt_);
+
+        gohm.approve(address(clearinghouse), gohmAmt_);
+        clearinghouse.lend(cooler, daiAmt_);
+        vm.stopPrank();
+
+        //assertEq(gohm.balanceOf(address(user)), prevGohmBal - gohmAmt_);
+        assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
+        assertEq(dai.balanceOf(address(user)), daiAmt_, "User DAI balance incorrect");
+        assertEq(dai.balanceOf(address(cooler)), 0, "Cooler DAI balance incorrect");
+        //assertEq(clearinghouse.receivables(), daiAmt_, "Clearinghouse receivables incorrect");
+    }
+
+    function test_LoanForCollateral(uint256 gohmCollat_) public {
+        // Calculate how much DAI we can lend for given gOHM collateral
+        //clearinghouse.loanForCollateral(gohmCollat_);
+    }
 
     function test_RollLoan() public {}
 
@@ -181,6 +226,7 @@ contract ClearingHouseTest is Test {
     }
 
     function testRevert_RebalanceEarly() public {
+        clearinghouse.rebalance();
         vm.expectRevert(ClearingHouse.TooEarlyToFund.selector);
         clearinghouse.rebalance();
     }
@@ -188,9 +234,10 @@ contract ClearingHouseTest is Test {
     // Should be able to rebalance multiple times if past due
     function test_RebalancePastDue() public {
         // Already skipped 1 week ahead in setup. Do once more and call rebalance twice.
-        skip(1 weeks);
-        clearinghouse.rebalance();
-        clearinghouse.rebalance();
+        skip(2 weeks);
+        for(uint i; i < 3; i++) {
+            clearinghouse.rebalance();
+        }
     }
 
     function test_Sweep() public {}

@@ -9,6 +9,7 @@ import {MINTRv1} from "olympus-v3/modules/MINTR/MINTR.v1.sol";
 import "olympus-v3/Kernel.sol";
 
 import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
+import {ICoolerCallback} from "src/ICoolerCallback.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -21,7 +22,7 @@ interface IStaking {
     ) external returns (uint256);
 }
 
-contract ClearingHouse is Policy, RolesConsumer {
+contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
 
     // --- ERRORS ----------------------------------------------------
 
@@ -172,9 +173,10 @@ contract ClearingHouse is Policy, RolesConsumer {
     /// @notice callback to decrement loan receivables
     /// @param loanID of loan
     /// @param amount repaid
-    function repay(uint256 loanID, uint256 amount) external {
+    function onRepay(uint256 loanID, uint256 amount) external override {
         // Validate caller is cooler
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
+
         // Validate lender is not address(0)
         (,,,,, address lender,,) = Cooler(msg.sender).loans(loanID);
         if (lender == address(0)) revert BadEscrow();
@@ -198,9 +200,9 @@ contract ClearingHouse is Policy, RolesConsumer {
         if (balance < FUND_AMOUNT) {
             uint256 amount = FUND_AMOUNT - balance;
 
-            console.log("ClearingHouse.rebalance: withdrawing %s DAI", amount / 1e18);
-            console.log("clearinghouse balance: ", balance / 1e18);
-            console.log("treasury balance: ", dai.balanceOf(address(TRSRY)) / 1e18);
+            //console.log("ClearingHouse.rebalance: withdrawing %s DAI", amount / 1e18);
+            //console.log("clearinghouse balance: ", balance / 1e18);
+            //console.log("treasury balance: ", dai.balanceOf(address(TRSRY)) / 1e18);
 
             TRSRY.increaseWithdrawApproval(address(this), dai, amount);
             TRSRY.withdrawReserves(address(this), dai, amount);
