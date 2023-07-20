@@ -163,14 +163,13 @@ contract Cooler {
         debt.safeTransfer(loan.lender, claim);
     }
 
-    /// @notice roll a loan over
+    /// @notice Roll a loan over with new terms
     /// @notice uses terms from request
     /// @param loanID index of loan in loans[]
     function roll(uint256 loanID) external {
         Loan storage loan = loans[loanID];
 
         if (block.timestamp > loan.expiry) revert Default();
-
         if (!loan.request.active) revert NotRollable();
 
         uint256 newCollateral = newCollateralFor(loanID);

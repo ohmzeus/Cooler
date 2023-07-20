@@ -12,7 +12,6 @@ import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
 import {ICoolerCallback} from "src/ICoolerCallback.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
-import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 
 interface IStaking {
     function unstake(
@@ -24,7 +23,6 @@ interface IStaking {
 }
 
 contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
-    using FixedPointMathLib for uint256;
 
     // --- ERRORS ----------------------------------------------------
 
@@ -254,12 +252,8 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
     /// @param collateral amount of gOHM collateral
     function loanForCollateral(uint256 collateral) public pure returns (uint256) {
         uint256 interestPercent = (INTEREST_RATE * DURATION) / 365 days;
-
-        //uint256 loan = collateral * LOAN_TO_COLLATERAL / 1e18;
-        //uint256 interest = loan * interestPercent / 1e18;
-
-        uint256 loan = collateral.mulWadUp(LOAN_TO_COLLATERAL);
-        uint256 interest = loan.mulWadUp(interestPercent);
+        uint256 loan = collateral * LOAN_TO_COLLATERAL / 1e18;
+        uint256 interest = loan * interestPercent / 1e18;
         return loan + interest;
     }
 }
