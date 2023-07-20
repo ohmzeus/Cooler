@@ -44,16 +44,16 @@ contract ClearingHouse is Policy, RolesConsumer {
 
     // --- PARAMETER BOUNDS ------------------------------------------
 
-    uint256 public constant INTEREST_RATE = 5e15; // 0.5%
-    uint256 public constant LOAN_TO_COLLATERAL = 3000 * 1e18; // 3,000
-    uint256 public constant DURATION = 121 days; // Four months
-    uint256 public constant FUND_CADENCE = 7 days; // One week
-    uint256 public constant FUND_AMOUNT = 18 * 1e24; // 18 million
+    uint256 public constant INTEREST_RATE = 5e15;               // 0.5%
+    uint256 public constant LOAN_TO_COLLATERAL = 3000 * 1e18;   // 3,000
+    uint256 public constant DURATION = 121 days;                // Four months
+    uint256 public constant FUND_CADENCE = 7 days;              // One week
+    uint256 public constant FUND_AMOUNT = 18 * 1e24;            // 18 million
 
-    uint256 public fundTime; // Timestamp at which rebalancing can occur
-    uint256 public receivables; // Outstanding loan receivables
-                                // Incremented when a loan is made or rolled
-                                // Decremented when a loan is repaid or collateral is burned
+    uint256 public fundTime;     // Timestamp at which rebalancing can occur
+    uint256 public receivables;  // Outstanding loan receivables
+                                 // Incremented when a loan is made or rolled
+                                 // Decremented when a loan is repaid or collateral is burned
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -173,9 +173,9 @@ contract ClearingHouse is Policy, RolesConsumer {
     function repay(uint256 loanID, uint256 amount) external {
         // Validate caller is cooler
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
-        // Validate lender is not address(0)
+        // Validate lender is the clearing house
         (,,,,, address lender,,) = Cooler(msg.sender).loans(loanID);
-        if (lender == address(0)) revert BadEscrow();
+        if (lender != address(this)) revert BadEscrow();
 
         // Decrement loan receivables
         receivables -= amount;
