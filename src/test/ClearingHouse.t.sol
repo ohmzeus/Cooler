@@ -154,21 +154,21 @@ contract ClearingHouseTest is Test {
         clearinghouse.lend(badCooler, 1e18);
     }
 
-    function test_LendToCooler(uint256 gohmAmt_, uint256 daiAmt_) public {
-        //vm.assume(gohmAmt_ > 0);
-        //vm.assume(daiAmt_ > 0);
+    function test_LendToCooler(uint256 daiAmt_) public {
+        vm.assume(daiAmt_ > 0);
         vm.assume(daiAmt_ < clearinghouse.FUND_AMOUNT());
 
-        gohm.mint(user, gohmAmt_);
+        //gohm.mint(user, gohmAmt_);
 
         vm.startPrank(user);
         Cooler cooler = Cooler(factory.generate(gohm, dai));
 
         // Ensure we have enough collateral
         uint256 gohmNeeded = cooler.collateralFor(daiAmt_, clearinghouse.LOAN_TO_COLLATERAL());
-        vm.assume(gohmNeeded < gohmAmt_);
+        //vm.assume(gohmNeeded < 0);
+        gohm.mint(user, gohmNeeded);
 
-        gohm.approve(address(clearinghouse), gohmAmt_);
+        gohm.approve(address(clearinghouse), gohmNeeded);
         clearinghouse.lend(cooler, daiAmt_);
         vm.stopPrank();
 
@@ -176,7 +176,7 @@ contract ClearingHouseTest is Test {
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
         assertEq(dai.balanceOf(address(user)), daiAmt_, "User DAI balance incorrect");
         assertEq(dai.balanceOf(address(cooler)), 0, "Cooler DAI balance incorrect");
-        //assertEq(clearinghouse.receivables(), daiAmt_, "Clearinghouse receivables incorrect");
+        assertEq(clearinghouse.receivables(), clearinghouse.loanForCollateral(gohmNeeded), "Clearinghouse receivables incorrect");
     }
 
     function test_LoanForCollateral(uint256 gohmCollat_) public {
