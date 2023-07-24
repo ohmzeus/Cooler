@@ -687,8 +687,8 @@ contract CoolerTest is Test {
             DURATION * 2
         );
 
-        (uint256 requestID, uint256 loanAmount,,,,,,) = cooler.loans(loanID);
-        Cooler.Request memory request = cooler.getRequest(requestID);
+        (Cooler.Request memory request, uint256 loanAmount,,,,,,) = cooler.loans(loanID);
+        //Cooler.Request memory request = cooler.getRequest(requestID);
 
         // check: request storage
         assertEq(loanAmount, request.amount);

@@ -172,7 +172,7 @@ contract ClearingHouseTest is Test {
         vm.assume(loanAmt_ > 0);
         vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
 
-        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmt_);
+        (Cooler cooler, uint256 gohmNeeded, ) = _createLoanForUser(loanAmt_);
 
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
         assertEq(dai.balanceOf(address(user)), loanAmt_, "User DAI balance incorrect");
@@ -192,10 +192,6 @@ contract ClearingHouseTest is Test {
 
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
-        uint256 initRequestID = initLoan.requestID;
-
-        Cooler.Request memory initRequest = cooler.getRequest(initRequestID);
-
         // Move forward 2 months (half duration of loan)
         skip(8 weeks);
 
@@ -204,12 +200,16 @@ contract ClearingHouseTest is Test {
 
         Cooler.Loan memory newLoan = cooler.getLoan(loanID);
 
+        // TODO verify these assertions
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
         assertEq(newLoan.amount, initLoan.amount, "Loan amount incorrect");
         assertEq(newLoan.repaid, initLoan.repaid, "Loan repaid incorrect");
         assertEq(newLoan.collateral, initLoan.collateral, "Loan collateral incorrect");
-        assertEq(newLoan.expiry, initLoan.expiry + initRequest.duration, "Loan expiry incorrect");
+        assertEq(newLoan.expiry, initLoan.expiry + initLoan.request.duration, "Loan expiry incorrect");
     }
+
+    // TODO use provideNewTermsForRoll function, then call roll and verify
+    function test_RollLoanNewTerms() public {}
 
     function test_RebalancePullFunds() public {
         uint256 oneMillion = 1e24;
@@ -265,11 +265,29 @@ contract ClearingHouseTest is Test {
         }
     }
 
-    function test_Sweep() public {}
+    function test_Sweep() public {
+        uint256 sdaiBal = sdai.balanceOf(address(clearinghouse));
 
-    function test_Defund() public {}
+        // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
+        dai.mint(address(clearinghouse), 1e24);
+        clearinghouse.sweep();
 
-    function test_DefundOnlyOverseer() public {}
+        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiBal + 1e24);
+    }
 
+    function test_Defund() public {
+        uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
+        vm.prank(overseer);
+        clearinghouse.defund(sdai, 1e24);
+        assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + 1e24);
+    }
+
+    function test_DefundNotGohm() public {
+        vm.expectRevert(ClearingHouse.OnlyBurnable.selector);
+        vm.prank(overseer);
+        clearinghouse.defund(gohm, 1e24);
+    }
+
+    // TODO have loan default and test if gOHM is burned
     function test_BurnExcess() public {}
 }

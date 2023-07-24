@@ -24,7 +24,9 @@ contract Cooler {
 
     // --- DATA STRUCTURES -------------------------------------------
 
-    Request[] public requests;
+    //Request[] public requests;
+    uint256 public requestsCounter;
+    mapping(uint256 => Request) public requests;
     struct Request {
         // A loan begins with a borrow request. It specifies:
         uint256 amount; // the amount they want to borrow,
@@ -37,8 +39,8 @@ contract Cooler {
     Loan[] public loans;
     struct Loan {
         // A request is converted to a loan when a lender clears it.
-        //Request request; // The terms of the loan are saved, along with:
-        uint256 requestID; // the index of the request in requests[],
+        Request request; // The terms of the loan are saved, along with:
+        //uint256 requestID; // the index of the request in requests[],
         uint256 amount; // the amount of debt owed,
         uint256 repaid; // the amount of debt tokens repaid but unclaimed,
         uint256 collateral; // the amount of collateral pledged,
@@ -89,16 +91,17 @@ contract Cooler {
         uint256 loanToCollateral,
         uint256 duration
     ) external returns (uint256 reqID) {
-        reqID = requests.length;
+        reqID = requestsCounter;
         factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
-        requests.push(
-            Request(amount, interest, loanToCollateral, duration, true)
-        );
+        requests[reqID] = Request(amount, interest, loanToCollateral, duration, true);
         collateral.safeTransferFrom(
             msg.sender,
             address(this),
             collateralFor(amount, loanToCollateral)
         );
+
+        // Increment for next request
+        requestsCounter++;
     }
 
     /// @notice cancel a loan request and return collateral
@@ -146,7 +149,6 @@ contract Cooler {
             loan.repaid += repaid;
         }
 
-
         debt.safeTransferFrom(msg.sender, repayTo, repaid);
         collateral.safeTransfer(owner, decollateralized);
 
@@ -169,20 +171,18 @@ contract Cooler {
         Loan memory loan = loans[loanID];
 
         if (block.timestamp > loan.expiry) revert Default();
-
-        Request memory req = requests[loan.requestID];
-        if (!req.active) revert NotRollable();
+        if (!loan.request.active) revert NotRollable();
 
         uint256 newCollateral = newCollateralFor(loanID);
         uint256 newDebt = interestFor(
             loan.amount,
-            req.interest,
-            req.duration
+            loan.request.interest,
+            loan.request.duration
         );
 
         loan.amount += newDebt;
         loan.collateral += newCollateral;
-        loan.expiry += req.duration;
+        loan.expiry += loan.request.duration;
 
         // Save updated loan info back to loans array
         loans[loanID] = loan;
@@ -229,7 +229,7 @@ contract Cooler {
         loanID = loans.length;
         loans.push(
             Loan(
-                reqID,
+                req,
                 req.amount + interest,
                 0,
                 collat,
@@ -260,18 +260,14 @@ contract Cooler {
 
         if (msg.sender != loan.lender) revert OnlyApproved();
 
-        requests.push(
+        loan.request =
             Request(
                 loan.amount,
                 interest,
                 loanToCollateral,
                 duration,
                 true
-            )
-        );
-
-        // Update loan requestID to new terms
-        loan.requestID = requests.length - 1;
+            );
     }
 
     /// @notice send collateral to lender upon default
@@ -333,7 +329,7 @@ contract Cooler {
         Loan memory loan = loans[loanID];
         uint256 neededCollateral = collateralFor(
             loan.amount,
-            requests[loan.requestID].loanToCollateral
+            loan.request.loanToCollateral
         );
 
         return
