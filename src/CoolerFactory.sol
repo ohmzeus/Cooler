@@ -13,7 +13,8 @@ import {Cooler} from "./Cooler.sol";
 contract CoolerFactory {
     using ClonesWithImmutableArgs for address;
 
-    // -- EVENTS -----------------------------------------------------
+    // --- EVENTS ----------------------------------------------------
+
 
     // A global event when a loan request is created
     event Request(
@@ -44,13 +45,13 @@ contract CoolerFactory {
     // Mapping to query Coolers for Collateral-Debt pair
     mapping(ERC20 => mapping(ERC20 => address[])) public coolersFor;
 
-    // -- INITIALIZATION ---------------------------------------------
+    // --- INITIALIZATION --------------------------------------------
 
     constructor() {
         coolerImplementation = new Cooler();
     }
 
-    // -- DEPLOY NEW COOLERS -----------------------------------------
+    // --- DEPLOY NEW COOLERS ----------------------------------------
 
     /// @notice creates a new Escrow contract for collateral and debt tokens
     function generate(
@@ -75,7 +76,7 @@ contract CoolerFactory {
         }
     }
 
-    // -- EMIT EVENTS ------------------------------------------------
+    // --- EMIT EVENTS -----------------------------------------------
 
     enum Events {
         Request,

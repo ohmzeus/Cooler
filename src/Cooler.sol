@@ -20,7 +20,7 @@ interface IClearinghouse {
 contract Cooler is Clone {
     using SafeTransferLib for ERC20;
 
-    // -- ERRORS -----------------------------------------------------
+    // --- ERRORS ----------------------------------------------------
 
     error OnlyApproved();
     error Deactivated();
@@ -29,7 +29,7 @@ contract Cooler is Clone {
     error NotRollable();
     error ZeroCollateralReturned();
 
-    // -- DATA STRUCTURES --------------------------------------------
+    // --- DATA STRUCTURES -------------------------------------------
 
     Request[] public requests;
     struct Request {
@@ -62,7 +62,7 @@ contract Cooler is Clone {
     // Facilitates transfer of lender ownership to new address
     mapping(uint256 => address) public approvals;
 
-    // -- IMMUTABLE PARAMETERS ---------------------------------------
+    // --- IMMUTABLES ------------------------------------------------
 
     /// @notice This address owns the collateral in escrow.
     function owner() public pure returns (address _owner) {
@@ -84,7 +84,7 @@ contract Cooler is Clone {
         return CoolerFactory(_getArgAddress(0x3c));
     }
 
-    // -- BORROWER ---------------------------------------------------
+    // --- BORROWER --------------------------------------------------
 
     /// @notice request a loan with given parameters
     /// @notice collateral is taken at time of request
@@ -201,7 +201,7 @@ contract Cooler is Clone {
         IDelegate(address(collateral())).delegate(to);
     }
 
-    // -- LENDER -----------------------------------------------------
+    // --- LENDER ----------------------------------------------------
 
     /// @notice fill a requested loan as a lender
     /// @param reqID index of request in requests[]
@@ -310,7 +310,7 @@ contract Cooler is Clone {
         loan.repayDirect = !loan.repayDirect;
     }
 
-    // -- AUX FUNCTIONS ----------------------------------------------
+    // --- AUX FUNCTIONS ---------------------------------------------
 
     /// @notice compute collateral needed for loan amount at given loan to collateral ratio
     /// @param amount of collateral tokens
