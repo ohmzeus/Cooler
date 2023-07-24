@@ -141,10 +141,10 @@ contract Cooler {
 
         // Check if repayment needs to be claimed or not
         address repayTo;
-        if(!loan.repayDirect) {
-            repayTo = address(this);
-        } else {
+        if(loan.repayDirect) {
             repayTo = loan.lender;
+        } else {
+            repayTo = address(this);
             loan.repaid += repaid;
         }
 
