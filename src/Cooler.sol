@@ -24,9 +24,7 @@ contract Cooler {
 
     // --- DATA STRUCTURES -------------------------------------------
 
-    //Request[] public requests;
-    uint256 public requestsCounter;
-    mapping(uint256 => Request) public requests;
+    Request[] public requests;
     struct Request {
         // A loan begins with a borrow request. It specifies:
         uint256 amount; // the amount they want to borrow,
@@ -91,17 +89,16 @@ contract Cooler {
         uint256 loanToCollateral,
         uint256 duration
     ) external returns (uint256 reqID) {
-        reqID = requestsCounter;
+        reqID = requests.length;
         factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
-        requests[reqID] = Request(amount, interest, loanToCollateral, duration, true);
+        requests.push(
+            Request(amount, interest, loanToCollateral, duration, true)
+        );
         collateral.safeTransferFrom(
             msg.sender,
             address(this),
             collateralFor(amount, loanToCollateral)
         );
-
-        // Increment for next request
-        requestsCounter++;
     }
 
     /// @notice cancel a loan request and return collateral
