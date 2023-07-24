@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Unlicense
-pragma solidity >=0.8.0;
+pragma solidity ^0.8.15;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
@@ -687,7 +687,9 @@ contract CoolerTest is Test {
             DURATION * 2
         );
 
-        (Cooler.Request memory request, uint256 loanAmount,,,,,,) = cooler.loans(loanID);
+        (uint256 requestID, uint256 loanAmount,,,,,,) = cooler.loans(loanID);
+        Cooler.Request memory request = cooler.getRequest(requestID);
+
         // check: request storage
         assertEq(loanAmount, request.amount);
         assertEq(INTEREST_RATE * 2, request.interest);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Unlicense
-pragma solidity >=0.8.0;
+pragma solidity ^0.8.15;
 
 import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
@@ -16,6 +16,7 @@ import {OlympusTreasury, TRSRYv1} from "olympus-v3/modules/TRSRY/OlympusTreasury
 //import {Actions} from "olympus-v3/Kernel.sol";
 
 import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
+//import {Cooler, Loan, Request} from "src/Cooler.sol";
 
 // Tests for ClearingHouse
 //
@@ -138,6 +139,19 @@ contract ClearingHouseTest is Test {
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
     }
 
+    function _createLoanForUser(uint256 loanAmt_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
+        vm.startPrank(user);
+        cooler = Cooler(factory.generate(gohm, dai));
+
+        // Ensure we have enough collateral
+        gohmNeeded = cooler.collateralFor(loanAmt_, clearinghouse.LOAN_TO_COLLATERAL());
+        gohm.mint(user, gohmNeeded);
+
+        gohm.approve(address(clearinghouse), gohmNeeded);
+        loanID = clearinghouse.lend(cooler, loanAmt_);
+        vm.stopPrank();
+    }
+
     function testRevert_LendMaliciousCooler() public {
         Cooler malicious = new Cooler(address(this), gohm, dai);
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
@@ -152,19 +166,6 @@ contract ClearingHouseTest is Test {
 
         vm.expectRevert(ClearingHouse.BadEscrow.selector);
         clearinghouse.lend(badCooler, 1e18);
-    }
-
-    function _createLoanForUser(uint256 loanAmt_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
-        vm.startPrank(user);
-        cooler = Cooler(factory.generate(gohm, dai));
-
-        // Ensure we have enough collateral
-        gohmNeeded = cooler.collateralFor(loanAmt_, clearinghouse.LOAN_TO_COLLATERAL());
-        gohm.mint(user, gohmNeeded);
-
-        gohm.approve(address(clearinghouse), gohmNeeded);
-        loanID = clearinghouse.lend(cooler, loanAmt_);
-        vm.stopPrank();
     }
 
     function test_LendToCooler(uint256 loanAmt_) public {
@@ -183,12 +184,31 @@ contract ClearingHouseTest is Test {
         vm.assume(loanAmt_ > 0);
         vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
 
-        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmt_);
+        (
+            Cooler cooler,
+            uint256 gohmNeeded,
+            uint256 loanID
+        ) = _createLoanForUser(loanAmt_);
+
+        Cooler.Loan memory initLoan = cooler.getLoan(loanID);
+
+        uint256 initRequestID = initLoan.requestID;
+
+        Cooler.Request memory initRequest = cooler.getRequest(initRequestID);
+
+        // Move forward 2 months (half duration of loan)
+        skip(8 weeks);
 
         // Roll loan
         clearinghouse.roll(cooler, loanID);
 
+        Cooler.Loan memory newLoan = cooler.getLoan(loanID);
+
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
+        assertEq(newLoan.amount, initLoan.amount, "Loan amount incorrect");
+        assertEq(newLoan.repaid, initLoan.repaid, "Loan repaid incorrect");
+        assertEq(newLoan.collateral, initLoan.collateral, "Loan collateral incorrect");
+        assertEq(newLoan.expiry, initLoan.expiry + initRequest.duration, "Loan expiry incorrect");
     }
 
     function test_RebalancePullFunds() public {
