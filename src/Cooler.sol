@@ -5,8 +5,8 @@ import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 
 import {CoolerFactory} from "src/CoolerFactory.sol";
-import {IDelegate} from "src/IDelegate.sol";
-import {ICoolerCallback} from "src/ICoolerCallback.sol";
+import {IDelegate} from "interfaces/IDelegate.sol";
+import {ICoolerCallback} from "interfaces/ICoolerCallback.sol";
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
 ///         for a specific user and debt-collateral pair.
@@ -243,7 +243,7 @@ contract Cooler {
 
         if (callback) {
             // Ensure that the lender implements the CoolerCallback abstract
-            try ICoolerCaalback(msg.sender).isCoolerCallback() returns (bool callbackCheck) {
+            try ICoolerCallback(msg.sender).isCoolerCallback() returns (bool callbackCheck) {
                 if (callbackCheck) ICoolerCallback(msg.sender).onRepay(loanID, 0);
                 else revert NotCoolerCallback();                
             } catch {
