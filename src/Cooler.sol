@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.15;
 
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
@@ -38,6 +38,7 @@ contract Cooler {
     struct Loan {
         // A request is converted to a loan when a lender clears it.
         Request request; // The terms of the loan are saved, along with:
+        //uint256 requestID; // the index of the request in requests[],
         uint256 amount; // the amount of debt owed,
         uint256 repaid; // the amount of debt tokens repaid but unclaimed,
         uint256 collateral; // the amount of collateral pledged,
@@ -164,7 +165,7 @@ contract Cooler {
     /// @notice uses terms from request
     /// @param loanID index of loan in loans[]
     function roll(uint256 loanID) external {
-        Loan storage loan = loans[loanID];
+        Loan memory loan = loans[loanID];
 
         if (block.timestamp > loan.expiry) revert Default();
         if (!loan.request.active) revert NotRollable();
@@ -180,12 +181,16 @@ contract Cooler {
         loan.collateral += newCollateral;
         loan.expiry += loan.request.duration;
 
-        if (newCollateral > 0)
+        // Save updated loan info back to loans array
+        loans[loanID] = loan;
+
+        if (newCollateral > 0) {
             collateral.safeTransferFrom(
                 msg.sender,
                 address(this),
                 newCollateral
             );
+        }
     }
 
     /// @notice delegate voting power on collateral
@@ -252,13 +257,14 @@ contract Cooler {
 
         if (msg.sender != loan.lender) revert OnlyApproved();
 
-        loan.request = Request(
-            loan.amount,
-            interest,
-            loanToCollateral,
-            duration,
-            true
-        );
+        loan.request =
+            Request(
+                loan.amount,
+                interest,
+                loanToCollateral,
+                duration,
+                true
+            );
     }
 
     /// @notice send collateral to lender upon default
@@ -300,9 +306,7 @@ contract Cooler {
     /// @param loanID of lender's loan
     function toggleDirect(uint256 loanID) external {
         Loan storage loan = loans[loanID];
-
         if (msg.sender != loan.lender) revert OnlyApproved();
-
         loan.repayDirect = !loan.repayDirect;
     }
 
@@ -322,7 +326,11 @@ contract Cooler {
     /// @param loanID of loan to roll
     function newCollateralFor(uint256 loanID) public view returns (uint256) {
         Loan memory loan = loans[loanID];
-        uint256 neededCollateral = collateralFor(loan.amount, loan.request.loanToCollateral);
+        uint256 neededCollateral = collateralFor(
+            loan.amount,
+            loan.request.loanToCollateral
+        );
+
         return
             neededCollateral > loan.collateral ?
             neededCollateral - loan.collateral :
@@ -355,5 +363,15 @@ contract Cooler {
     /// @return active status
     function isActive(uint256 reqID) external view returns (bool) {
         return requests[reqID].active;
+    }
+
+    /// @notice Getter for Request data as a struct
+    function getRequest(uint256 reqID) external view returns (Request memory) {
+        return requests[reqID];
+    }
+
+    /// @notice Getter for Loan data as a struct
+    function getLoan(uint256 loanID) external view returns (Loan memory) {
+        return loans[loanID];
     }
 }
