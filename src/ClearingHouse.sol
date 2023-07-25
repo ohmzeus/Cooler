@@ -125,10 +125,12 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
     /// @param cooler to lend to
     /// @param amount of DAI to lend
     function lend(Cooler cooler, uint256 amount) external returns (uint256) {
-        // Validate
+        // Attemp a treasury rebalance
+        rebalance();
+        // Validate that cooler was deployed by the trusted factory.
         if (!factory.created(address(cooler))) revert OnlyFromFactory();
-        if (cooler.collateral() != gOHM || cooler.debt() != dai)
-            revert BadEscrow();
+        // Validate cooler collateral and debt tokens.
+        if (cooler.collateral() != gOHM || cooler.debt() != dai) revert BadEscrow();
 
         // Compute and access collateral
         uint256 collateral = cooler.collateralFor(amount, LOAN_TO_COLLATERAL);
@@ -178,6 +180,13 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
         receivables += loanForCollateral(newCollateral);
     }
 
+    /// @notice callback to attept a treasury rebalance
+    /// @param loanID of loan
+    function onRoll(uint256 loanID) external override {
+        // Attemp a treasury rebalance
+        rebalance();
+    }
+
     /// @notice callback to decrement loan receivables
     /// @param loanID of loan
     /// @param amount repaid
@@ -190,34 +199,32 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
 
         // Decrement loan receivables
         receivables -= amount;
+        // Attemp a treasury rebalance
+        rebalance();
     }
 
     // --- FUNDING ---------------------------------------------------
 
-    /// @notice fund loan liquidity from treasury
-    function rebalance() external {
-        if (fundTime == 0) fundTime = block.timestamp + FUND_CADENCE;
-        else if (fundTime <= block.timestamp) fundTime += FUND_CADENCE;
-        else revert TooEarlyToFund();
+    /// @notice Fund loan liquidity from treasury. Returns false if too early to rebalance.
+    ///         Exposure is always capped at FUND_AMOUNT and rebalanced at FUND_CADANCE.
+    function rebalance() public returns (bool) {
+        if (fundTime > block.timestamp) return false;
+        fundTime = block.timestamp + FUND_CADENCE;
 
-        uint256 balance = dai.balanceOf(address(this)) +
-            sDai.maxWithdraw(address(this));
+        uint256 balance = dai.balanceOf(address(this)) + sDai.maxWithdraw(address(this));
 
         // Rebalance funds on hand with treasury's reserves
         if (balance < FUND_AMOUNT) {
             uint256 amount = FUND_AMOUNT - balance;
-
-            //console.log("ClearingHouse.rebalance: withdrawing %s DAI", amount / 1e18);
-            //console.log("clearinghouse balance: ", balance / 1e18);
-            //console.log("treasury balance: ", dai.balanceOf(address(TRSRY)) / 1e18);
-
-            TRSRY.increaseDebtorApproval(address(this), dai, amount);
-            TRSRY.incurDebt(dai, amount);
+            // Fund the clearinghouse with treasury assets.
+            TRSRY.increaseWithdrawApproval(address(this), dai, amount);
+            TRSRY.withdrawReserves(address(this), dai, amount);
             sweep();
         } else {
             // Withdraw from sDAI to the treasury
             sDai.withdraw(balance - FUND_AMOUNT, address(TRSRY), address(this));
         }
+        return true;
     }
 
     /// @notice Sweep excess DAI into vault
@@ -249,9 +256,6 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
         (, uint256 amount,, uint256 collateral,, address lender,,) = Cooler(msg.sender).loans(loanID);
         if (lender != address(this)) revert BadEscrow();
 
-        // Decrement loan receivables
-        receivables -= amount;
-
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         TRSRY.setDebt(address(this), dai, outstandingDebt - amount);
@@ -262,6 +266,11 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
             address(this),
             staking.unstake(address(this), collateral, false, false)
         );
+
+        // Decrement loan receivables
+        receivables -= amount;
+        // Attemp a treasury rebalance
+        rebalance();
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------

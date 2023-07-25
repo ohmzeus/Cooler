@@ -5,4 +5,5 @@ pragma solidity >=0.8.0;
 interface ICoolerCallback {
     function onRepay(uint256 loanID, uint256 amount) external;
     function onDefault(uint256 loanID) external;
+    function onRoll(uint256 loanID) external;
 }

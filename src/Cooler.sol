@@ -191,6 +191,8 @@ contract Cooler {
                 newCollateral
             );
         }
+
+        if (loan.callback) ICoolerCallback(loan.lender).onRoll(loanID);
     }
 
     /// @notice delegate voting power on collateral
