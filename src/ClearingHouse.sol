@@ -217,8 +217,8 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
         if (balance < FUND_AMOUNT) {
             uint256 amount = FUND_AMOUNT - balance;
             // Fund the clearinghouse with treasury assets.
-            TRSRY.increaseWithdrawApproval(address(this), dai, amount);
-            TRSRY.withdrawReserves(address(this), dai, amount);
+            TRSRY.increaseDebtorApproval(address(this), dai, amount);
+            TRSRY.incurDebt(dai, amount);
             sweep();
         } else {
             // Withdraw from sDAI to the treasury
