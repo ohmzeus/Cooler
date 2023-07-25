@@ -9,7 +9,7 @@ import {MINTRv1} from "olympus-v3/modules/MINTR/MINTR.v1.sol";
 import "olympus-v3/Kernel.sol";
 
 import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
-import {ICoolerCallback} from "src/ICoolerCallback.sol";
+import {CoolerCallback} from "src/CoolerCallback.sol";
 
 import {console2 as console} from "forge-std/console2.sol";
 
@@ -22,7 +22,7 @@ interface IStaking {
     ) external returns (uint256);
 }
 
-contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
+contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- ERRORS ----------------------------------------------------
 

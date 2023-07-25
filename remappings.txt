@@ -3,4 +3,5 @@ forge-std/=lib/forge-std/src/
 solmate/=lib/solmate/src/
 olympus-v3/=lib/olympus-v3/src/
 test/=src/test
+interfaces/=src/interfaces
 clones/=lib/clones-with-immutable-args/src/

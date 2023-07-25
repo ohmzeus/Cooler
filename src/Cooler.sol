@@ -21,6 +21,7 @@ contract Cooler {
     error NoDefault();
     error NotRollable();
     error ZeroCollateralReturned();
+    error NotCoolerCallback();
 
     // --- DATA STRUCTURES -------------------------------------------
 
@@ -219,7 +220,7 @@ contract Cooler {
         factory.newEvent(reqID, CoolerFactory.Events.Clear, 0);
 
         if (!req.active) revert Deactivated();
-        else req.active = false;
+        req.active = false;
 
         uint256 interest = interestFor(req.amount, req.interest, req.duration);
         uint256 collat = collateralFor(req.amount, req.loanToCollateral);
@@ -240,8 +241,15 @@ contract Cooler {
         );
         debt.safeTransferFrom(msg.sender, owner, req.amount);
 
-        // Validate callback
-        if (callback) ICoolerCallback(msg.sender).onRepay(loanID, 0);
+        if (callback) {
+            // Ensure that the lender implements the CoolerCallback abstract
+            try ICoolerCaalback(msg.sender).isCoolerCallback() returns (bool callbackCheck) {
+                if (callbackCheck) ICoolerCallback(msg.sender).onRepay(loanID, 0);
+                else revert NotCoolerCallback();                
+            } catch {
+                revert NotCoolerCallback();
+            }
+        }
     }
 
     /// @notice provide terms for loan to roll over
