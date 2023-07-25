@@ -46,12 +46,7 @@ import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 //     [ ] OHM supply is properly reduced
 
 contract MockStaking {
-    function unstake(
-        address,
-        uint256 amount,
-        bool,
-        bool
-    ) external pure returns (uint256) {
+    function unstake(address, uint256 amount, bool, bool) external pure returns (uint256) {
         return amount;
     }
 }
@@ -118,7 +113,7 @@ contract ClearingHouseTest is Test {
         rolesAdmin.grantRole("cooler_overseer", overseer);
 
         // Setup clearinghouse initial conditions
-        uint mintAmount = 200_000_000e18; // Init treasury with 200 million
+        uint256 mintAmount = 200_000_000e18; // Init treasury with 200 million
 
         dai.mint(address(TRSRY), mintAmount);
         //dai.approve(address(sdai), dai.balanceOf(address(this)));
@@ -139,7 +134,10 @@ contract ClearingHouseTest is Test {
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
     }
 
-    function _createLoanForUser(uint256 loanAmt_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
+    function _createLoanForUser(uint256 loanAmt_)
+        internal
+        returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID)
+    {
         vm.startPrank(user);
         cooler = Cooler(factory.generate(gohm, dai));
 
@@ -172,23 +170,23 @@ contract ClearingHouseTest is Test {
         vm.assume(loanAmt_ > 0);
         vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
 
-        (Cooler cooler, uint256 gohmNeeded, ) = _createLoanForUser(loanAmt_);
+        (Cooler cooler, uint256 gohmNeeded,) = _createLoanForUser(loanAmt_);
 
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
         assertEq(dai.balanceOf(address(user)), loanAmt_, "User DAI balance incorrect");
         assertEq(dai.balanceOf(address(cooler)), 0, "Cooler DAI balance incorrect");
-        assertEq(clearinghouse.receivables(), clearinghouse.loanForCollateral(gohmNeeded), "Clearinghouse receivables incorrect");
+        assertEq(
+            clearinghouse.receivables(),
+            clearinghouse.loanForCollateral(gohmNeeded),
+            "Clearinghouse receivables incorrect"
+        );
     }
 
     function test_RollLoan(uint256 loanAmt_) public {
         vm.assume(loanAmt_ > 0);
         vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
 
-        (
-            Cooler cooler,
-            uint256 gohmNeeded,
-            uint256 loanID
-        ) = _createLoanForUser(loanAmt_);
+        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmt_);
 
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
@@ -221,7 +219,7 @@ contract ClearingHouseTest is Test {
 
         assertEq(sdai.maxWithdraw(address(clearinghouse)), daiBal - oneMillion);
 
-        // Test if clearinghouse pulls in 1 mil DAI from treasury 
+        // Test if clearinghouse pulls in 1 mil DAI from treasury
         uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
 
         clearinghouse.rebalance();
@@ -260,7 +258,7 @@ contract ClearingHouseTest is Test {
     function test_RebalancePastDue() public {
         // Already skipped 1 week ahead in setup. Do once more and call rebalance twice.
         skip(2 weeks);
-        for(uint i; i < 3; i++) {
+        for (uint256 i; i < 3; i++) {
             clearinghouse.rebalance();
         }
     }

@@ -17,11 +17,7 @@ contract MockGohm is MockERC20, IDelegate {
     uint256 public constant index = 10000;
     address public delegatee;
 
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_
-    ) MockERC20(name_, symbol_, decimals_) {}
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) MockERC20(name_, symbol_, decimals_) {}
 
     function delegate(address delegatee_) public returns (bool) {
         delegatee = delegatee_;
@@ -67,12 +63,7 @@ contract MockStaking {
         sOHM = MockERC20(sohm_);
         gOHM = MockGohm(gohm_);
 
-        epoch = Epoch({
-            length: epochLength,
-            number: firstEpochNumber_,
-            end: firstEpochTime_,
-            distribute: 0
-        });
+        epoch = Epoch({length: epochLength, number: firstEpochNumber_, end: firstEpochTime_, distribute: 0});
     }
 
     /// setters
@@ -81,24 +72,14 @@ contract MockStaking {
     }
 
     /// functions
-    function stake(
-        address to_,
-        uint256 amount_,
-        bool rebasing_,
-        bool claim_
-    ) external returns (uint256) {
+    function stake(address to_, uint256 amount_, bool rebasing_, bool claim_) external returns (uint256) {
         OHM.transferFrom(msg.sender, address(this), amount_);
         amount_ = amount_ + rebase();
         if (claim_) {}
         return _send(to_, amount_, rebasing_);
     }
 
-    function unstake(
-        address to_,
-        uint256 amount_,
-        bool trigger_,
-        bool rebasing_
-    ) external returns (uint256 amount) {
+    function unstake(address to_, uint256 amount_, bool trigger_, bool rebasing_) external returns (uint256 amount) {
         uint256 bounty;
         if (trigger_) bounty = rebase();
 

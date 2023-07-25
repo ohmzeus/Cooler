@@ -26,6 +26,7 @@ contract Cooler {
     // --- DATA STRUCTURES -------------------------------------------
 
     Request[] public requests;
+
     struct Request {
         // A loan begins with a borrow request. It specifies:
         uint256 amount; // the amount they want to borrow,
@@ -36,6 +37,7 @@ contract Cooler {
     }
 
     Loan[] public loans;
+
     struct Loan {
         // A request is converted to a loan when a lender clears it.
         Request request; // The terms of the loan are saved, along with:
@@ -84,22 +86,14 @@ contract Cooler {
     /// @param loanToCollateral debt tokens per collateral token pledged
     /// @param duration of loan tenure in seconds
     /// @param reqID index of request in requests[]
-    function request(
-        uint256 amount,
-        uint256 interest,
-        uint256 loanToCollateral,
-        uint256 duration
-    ) external returns (uint256 reqID) {
+    function request(uint256 amount, uint256 interest, uint256 loanToCollateral, uint256 duration)
+        external
+        returns (uint256 reqID)
+    {
         reqID = requests.length;
         factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
-        requests.push(
-            Request(amount, interest, loanToCollateral, duration, true)
-        );
-        collateral.safeTransferFrom(
-            msg.sender,
-            address(this),
-            collateralFor(amount, loanToCollateral)
-        );
+        requests.push(Request(amount, interest, loanToCollateral, duration, true));
+        collateral.safeTransferFrom(msg.sender, address(this), collateralFor(amount, loanToCollateral));
     }
 
     /// @notice cancel a loan request and return collateral
@@ -114,10 +108,7 @@ contract Cooler {
         if (!req.active) revert Deactivated();
 
         req.active = false;
-        collateral.safeTransfer(
-            owner,
-            collateralFor(req.amount, req.loanToCollateral)
-        );
+        collateral.safeTransfer(owner, collateralFor(req.amount, req.loanToCollateral));
     }
 
     /// @notice repay a loan to recoup collateral
@@ -140,7 +131,7 @@ contract Cooler {
 
         // Check if repayment needs to be claimed or not
         address repayTo;
-        if(loan.repayDirect) {
+        if (loan.repayDirect) {
             repayTo = loan.lender;
         } else {
             repayTo = address(this);
@@ -172,11 +163,7 @@ contract Cooler {
         if (!loan.request.active) revert NotRollable();
 
         uint256 newCollateral = newCollateralFor(loanID);
-        uint256 newDebt = interestFor(
-            loan.amount,
-            loan.request.interest,
-            loan.request.duration
-        );
+        uint256 newDebt = interestFor(loan.amount, loan.request.interest, loan.request.duration);
 
         loan.amount += newDebt;
         loan.collateral += newCollateral;
@@ -186,11 +173,7 @@ contract Cooler {
         loans[loanID] = loan;
 
         if (newCollateral > 0) {
-            collateral.safeTransferFrom(
-                msg.sender,
-                address(this),
-                newCollateral
-            );
+            collateral.safeTransferFrom(msg.sender, address(this), newCollateral);
         }
 
         if (loan.callback) ICoolerCallback(loan.lender).onRoll(loanID);
@@ -208,13 +191,12 @@ contract Cooler {
     /// @notice fill a requested loan as a lender
     /// @param reqID index of request in requests[]
     /// @param repayDirect lender should input false if concerned about debt token blacklisting
-    /// @param callback lender can insert callback at end for accounting
+    /// @param isCallback lender can insert callback at end for accounting
     /// @return loanID index of loan in loans[]
-    function clear(
-        uint256 reqID,
-        bool repayDirect,
-        bool callback
-    ) external returns (uint256 loanID) {
+    function clear(uint256 reqID, bool repayDirect, bool isCallback) external returns (uint256 loanID) {
+        // If caller is not a callback, then revert
+        if (isCallback != ICoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+
         Request storage req = requests[reqID];
 
         factory.newEvent(reqID, CoolerFactory.Events.Clear, 0);
@@ -227,26 +209,8 @@ contract Cooler {
         uint256 expiration = block.timestamp + req.duration;
 
         loanID = loans.length;
-        loans.push(
-            Loan(
-                req,
-                req.amount + interest,
-                0,
-                collat,
-                expiration,
-                msg.sender,
-                repayDirect,
-                callback
-            )
-        );
+        loans.push(Loan(req, req.amount + interest, 0, collat, expiration, msg.sender, repayDirect, isCallback));
         debt.safeTransferFrom(msg.sender, owner, req.amount);
-
-        if (callback) {
-            // Ensure that the lender implements the CoolerCallback abstract
-            try ICoolerCallback(msg.sender).isCoolerCallback() returns (bool callbackCheck) {
-                if (!callbackCheck) revert NotCoolerCallback();                
-            } catch { revert NotCoolerCallback(); }
-        }
     }
 
     /// @notice provide terms for loan to roll over
@@ -254,24 +218,14 @@ contract Cooler {
     /// @param interest to pay (annualized % of 'amount')
     /// @param loanToCollateral debt tokens per collateral token pledged
     /// @param duration of loan tenure in seconds
-    function provideNewTermsForRoll(
-        uint256 loanID,
-        uint256 interest,
-        uint256 loanToCollateral,
-        uint256 duration
-    ) external {
+    function provideNewTermsForRoll(uint256 loanID, uint256 interest, uint256 loanToCollateral, uint256 duration)
+        external
+    {
         Loan storage loan = loans[loanID];
 
         if (msg.sender != loan.lender) revert OnlyApproved();
 
-        loan.request =
-            Request(
-                loan.amount,
-                interest,
-                loanToCollateral,
-                duration,
-                true
-            );
+        loan.request = Request(loan.amount, interest, loanToCollateral, duration, true);
     }
 
     /// @notice send collateral to lender upon default
@@ -286,6 +240,7 @@ contract Cooler {
         collateral.safeTransfer(loan.lender, loan.collateral);
 
         if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID);
+
         return loan.collateral;
     }
 
@@ -322,10 +277,7 @@ contract Cooler {
     /// @notice compute collateral needed for loan amount at given loan to collateral ratio
     /// @param amount of collateral tokens
     /// @param loanToCollateral ratio for loan
-    function collateralFor(
-        uint256 amount,
-        uint256 loanToCollateral
-    ) public pure returns (uint256) {
+    function collateralFor(uint256 amount, uint256 loanToCollateral) public pure returns (uint256) {
         return (amount * DECIMALS) / loanToCollateral;
     }
 
@@ -333,15 +285,9 @@ contract Cooler {
     /// @param loanID of loan to roll
     function newCollateralFor(uint256 loanID) public view returns (uint256) {
         Loan memory loan = loans[loanID];
-        uint256 neededCollateral = collateralFor(
-            loan.amount,
-            loan.request.loanToCollateral
-        );
+        uint256 neededCollateral = collateralFor(loan.amount, loan.request.loanToCollateral);
 
-        return
-            neededCollateral > loan.collateral ?
-            neededCollateral - loan.collateral :
-            0;
+        return neededCollateral > loan.collateral ? neededCollateral - loan.collateral : 0;
     }
 
     /// @notice compute interest cost on amount for duration at given annualized rate
@@ -349,11 +295,7 @@ contract Cooler {
     /// @param rate of interest (annualized)
     /// @param duration of loan in seconds
     /// @return interest as a number of debt tokens
-    function interestFor(
-        uint256 amount,
-        uint256 rate,
-        uint256 duration
-    ) public pure returns (uint256) {
+    function interestFor(uint256 amount, uint256 rate, uint256 duration) public pure returns (uint256) {
         uint256 interest = (rate * duration) / 365 days;
         return (amount * interest) / DECIMALS;
     }

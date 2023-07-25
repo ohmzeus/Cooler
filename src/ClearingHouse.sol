@@ -14,16 +14,10 @@ import {CoolerCallback} from "src/CoolerCallback.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 interface IStaking {
-    function unstake(
-        address to,
-        uint256 amount,
-        bool trigger,
-        bool rebasing
-    ) external returns (uint256);
+    function unstake(address to, uint256 amount, bool trigger, bool rebasing) external returns (uint256);
 }
 
 contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
-
     // --- ERRORS ----------------------------------------------------
 
     error OnlyFromFactory();
@@ -31,7 +25,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     error DurationMaximum();
     error OnlyBurnable();
     error TooEarlyToFund();
-    
+
     // --- RELEVANT CONTRACTS ----------------------------------------
 
     CoolerFactory public immutable factory;
@@ -39,7 +33,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     ERC4626 public immutable sDai;
     ERC20 public immutable gOHM;
     IStaking public immutable staking;
-    
+
     // --- MODULES ---------------------------------------------------
 
     TRSRYv1 public TRSRY;
@@ -47,26 +41,22 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- PARAMETER BOUNDS ------------------------------------------
 
-    uint256 public constant INTEREST_RATE = 5e15;               // 0.5%
-    uint256 public constant LOAN_TO_COLLATERAL = 3000e18;       // 3,000
-    uint256 public constant DURATION = 121 days;                // Four months
-    uint256 public constant FUND_CADENCE = 7 days;              // One week
-    uint256 public constant FUND_AMOUNT = 18_000_000e18;        // 18 million
+    uint256 public constant INTEREST_RATE = 5e15; // 0.5%
+    uint256 public constant LOAN_TO_COLLATERAL = 3000e18; // 3,000
+    uint256 public constant DURATION = 121 days; // Four months
+    uint256 public constant FUND_CADENCE = 7 days; // One week
+    uint256 public constant FUND_AMOUNT = 18_000_000e18; // 18 million
 
-    uint256 public fundTime;     // Timestamp at which rebalancing can occur
-    uint256 public receivables;  // Outstanding loan receivables
-                                 // Incremented when a loan is made or rolled
-                                 // Decremented when a loan is repaid or collateral is burned
+    uint256 public fundTime; // Timestamp at which rebalancing can occur
+    uint256 public receivables; // Outstanding loan receivables
+        // Incremented when a loan is made or rolled
+        // Decremented when a loan is repaid or collateral is burned
 
     // --- INITIALIZATION --------------------------------------------
 
-    constructor(
-        address gohm_,
-        address staking_,
-        address sdai_,
-        address coolerFactory_,
-        address kernel_
-    ) Policy(Kernel(kernel_)) {
+    constructor(address gohm_, address staking_, address sdai_, address coolerFactory_, address kernel_)
+        Policy(Kernel(kernel_))
+    {
         gOHM = ERC20(gohm_);
         staking = IStaking(staking_);
         sDai = ERC4626(sdai_);
@@ -75,11 +65,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Default framework setup
-    function configureDependencies()
-        external
-        override
-        returns (Keycode[] memory dependencies)
-    {
+    function configureDependencies() external override returns (Keycode[] memory dependencies) {
         dependencies = new Keycode[](3);
         dependencies[0] = toKeycode("TRSRY");
         dependencies[1] = toKeycode("MINTR");
@@ -91,31 +77,14 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Default framework setup
-    function requestPermissions()
-        external
-        view
-        override
-        returns (Permissions[] memory requests)
-    {
+    function requestPermissions() external view override returns (Permissions[] memory requests) {
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
         requests = new Permissions[](5);
-        requests[0] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.setDebt.selector
-        );
-        requests[1] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.repayDebt.selector
-        );
-        requests[2] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.incurDebt.selector
-        );
-        requests[3] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.increaseDebtorApproval.selector
-        );
+        requests[0] = Permissions(TRSRY_KEYCODE, TRSRY.setDebt.selector);
+        requests[1] = Permissions(TRSRY_KEYCODE, TRSRY.repayDebt.selector);
+        requests[2] = Permissions(TRSRY_KEYCODE, TRSRY.incurDebt.selector);
+        requests[3] = Permissions(TRSRY_KEYCODE, TRSRY.increaseDebtorApproval.selector);
         requests[4] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
@@ -125,12 +94,13 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param cooler to lend to
     /// @param amount of DAI to lend
     function lend(Cooler cooler, uint256 amount) external returns (uint256) {
-        // Attemp a treasury rebalance
-        rebalance();
         // Validate that cooler was deployed by the trusted factory.
         if (!factory.created(address(cooler))) revert OnlyFromFactory();
         // Validate cooler collateral and debt tokens.
         if (cooler.collateral() != gOHM || cooler.debt() != dai) revert BadEscrow();
+
+        // Try rebalance early in case funding is available to fulfill loan
+        rebalance();
 
         // Compute and access collateral
         uint256 collateral = cooler.collateralFor(amount, LOAN_TO_COLLATERAL);
@@ -138,12 +108,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Create loan request
         gOHM.approve(address(cooler), collateral);
-        uint256 reqID = cooler.request(
-            amount,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
+        uint256 reqID = cooler.request(amount, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
         // Clear loan request by providing enough DAI
         sDai.withdraw(amount, address(this), address(this));
@@ -152,7 +117,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Increment loan receivables
         receivables += loanForCollateral(collateral);
-        
+
         return loanID;
     }
 
@@ -161,12 +126,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param id of loan in cooler
     function roll(Cooler cooler, uint256 id) external {
         // Provide rollover terms
-        cooler.provideNewTermsForRoll(
-            id,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
+        cooler.provideNewTermsForRoll(id, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
         // Collect applicable new collateral from user
         uint256 newCollateral = cooler.newCollateralFor(id);
@@ -183,7 +143,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice callback to attept a treasury rebalance
     /// @param loanID of loan
     function onRoll(uint256 loanID) external override {
-        // Attemp a treasury rebalance
+        // Attempt a treasury rebalance
         rebalance();
     }
 
@@ -199,7 +159,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Decrement loan receivables
         receivables -= amount;
-        // Attemp a treasury rebalance
+        // Attempt a treasury rebalance
         rebalance();
     }
 
@@ -208,7 +168,9 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Fund loan liquidity from treasury. Returns false if too early to rebalance.
     ///         Exposure is always capped at FUND_AMOUNT and rebalanced at FUND_CADANCE.
     function rebalance() public returns (bool) {
+        // Return gracefully if it's too early to rebalance
         if (fundTime > block.timestamp) return false;
+
         fundTime = block.timestamp + FUND_CADENCE;
 
         uint256 balance = dai.balanceOf(address(this)) + sDai.maxWithdraw(address(this));
@@ -224,6 +186,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
             // Withdraw from sDAI to the treasury
             sDai.withdraw(balance - FUND_AMOUNT, address(TRSRY), address(this));
         }
+
         return true;
     }
 
@@ -242,9 +205,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Return funds to the Treasury by using `repayDebt`
         try TRSRY.repayDebt(address(this), token, amount) {}
-        // Use a regular ERC20 transfer as a fallback function
-        // for tokens weren't borrowed from Treasury
-        catch { token.transfer(address(TRSRY), amount); }
+        catch {
+            // Use a regular ERC20 transfer as a fallback function
+            // for tokens weren't borrowed from Treasury
+            token.transfer(address(TRSRY), amount);
+        }
     }
 
     /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
@@ -262,19 +227,17 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Unstake and burn the collateral of the defaulted loan.
         gOHM.approve(address(staking), collateral);
-        MINTR.burnOhm(
-            address(this),
-            staking.unstake(address(this), collateral, false, false)
-        );
+        MINTR.burnOhm(address(this), staking.unstake(address(this), collateral, false, false));
 
         // Decrement loan receivables
         receivables -= amount;
-        // Attemp a treasury rebalance
+
+        // Attempt a treasury rebalance
         rebalance();
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
-    
+
     /// @notice view function computing loan for a collateral amount
     /// @param collateral amount of gOHM collateral
     function loanForCollateral(uint256 collateral) public pure returns (uint256) {

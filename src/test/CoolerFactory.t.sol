@@ -18,11 +18,10 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] emitted logs match the input variables
 
 contract CoolerFactoryTest is Test {
-
     MockERC20 internal collateral;
     MockERC20 internal debt;
     MockERC20 internal otherDebt;
-    
+
     address alice;
     address bob;
 
@@ -43,7 +42,7 @@ contract CoolerFactoryTest is Test {
         alice = users[0];
         bob = users[1];
 
-        // Deploy mocks 
+        // Deploy mocks
         collateral = new MockERC20("Collateral", "COLLAT", 18);
         debt = new MockERC20("Debt", "DEBT", 18);
         otherDebt = new MockERC20("Other Debt", "OTHER", 18);
@@ -54,7 +53,6 @@ contract CoolerFactoryTest is Test {
 
     // -- CoolerFactory Functions -------------------------------------------------
     function test_generate() public {
-
         vm.startPrank(alice);
         // First time (alice <> collateral <> debt) the cooler is generated
         address coolerAlice = coolerFactory.generate(collateral, debt);
