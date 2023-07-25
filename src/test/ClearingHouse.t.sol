@@ -9,6 +9,7 @@ import {UserFactory} from "test/lib/UserFactory.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC4626} from "solmate/test/utils/mocks/MockERC4626.sol";
 
+import {Permissions, Keycode, fromKeycode, toKeycode} from "olympus-v3/Kernel.sol";
 import {RolesAdmin, Kernel, Actions} from "olympus-v3/policies/RolesAdmin.sol";
 import {OlympusRoles, ROLESv1} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol";
@@ -21,8 +22,8 @@ import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 // Tests for ClearingHouse
 //
 // ClearingHouse Setup and Permissions
-// [ ] configureDependencies
-// [ ] requestPermissions
+// [X] configureDependencies
+// [X] requestPermissions
 //
 // ClearingHouse Functions
 // [ ] rebalance
@@ -139,20 +140,63 @@ contract ClearingHouseTest is Test {
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
     }
 
-    function _createLoanForUser(uint256 loanAmt_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
+    // --- HELPER FUNCTIONS ----------------------------------------------
+
+    function _createLoanForUser(uint256 loanAmount_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
         vm.startPrank(user);
         cooler = Cooler(factory.generate(gohm, dai));
 
-        // Ensure we have enough collateral
-        gohmNeeded = cooler.collateralFor(loanAmt_, clearinghouse.LOAN_TO_COLLATERAL());
+        // Ensure user has enough collateral
+        gohmNeeded = cooler.collateralFor(loanAmount_, clearinghouse.LOAN_TO_COLLATERAL());
         gohm.mint(user, gohmNeeded);
 
         gohm.approve(address(clearinghouse), gohmNeeded);
-        loanID = clearinghouse.lend(cooler, loanAmt_);
+        loanID = clearinghouse.lend(cooler, loanAmount_);
         vm.stopPrank();
     }
 
+    function _skipDays(uint8 days_) internal {
+        vm.warp(block.timestamp + days_ * 1 days);
+        if (block.timestamp >= clearinghouse.fundTime()) {
+            clearinghouse.rebalance();
+        }
+    }
+
+    // --- SETUP, DEPENDENCIES, AND PERMISSIONS --------------------------
+    
+    function test_configureDependencies() public {
+        Keycode[] memory expectedDeps = new Keycode[](3);
+        expectedDeps[0] = toKeycode("TRSRY");
+        expectedDeps[1] = toKeycode("MINTR");
+        expectedDeps[2] = toKeycode("ROLES");
+
+        Keycode[] memory deps = clearinghouse.configureDependencies();
+        assertEq(deps.length, expectedDeps.length);
+        assertEq(fromKeycode(deps[0]), fromKeycode(expectedDeps[0]));
+        assertEq(fromKeycode(deps[1]), fromKeycode(expectedDeps[1]));
+        assertEq(fromKeycode(deps[2]), fromKeycode(expectedDeps[2]));
+    }
+
+    function test_requestPermissions() public {
+        Permissions[] memory expectedPerms = new Permissions[](3);
+        Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
+        Keycode MINTR_KEYCODE = toKeycode("MINTR");
+        expectedPerms[0] = Permissions(TRSRY_KEYCODE, TRSRY.withdrawReserves.selector);
+        expectedPerms[1] = Permissions(TRSRY_KEYCODE, TRSRY.increaseWithdrawApproval.selector);
+        expectedPerms[2] = Permissions(MINTR_KEYCODE, MINTR.burnOhm.selector);
+        
+        Permissions[] memory perms = clearinghouse.requestPermissions();
+        assertEq(perms.length, expectedPerms.length);
+        for (uint256 i = 0; i < perms.length; i++) {
+            assertEq(fromKeycode(perms[i].keycode), fromKeycode(expectedPerms[i].keycode));
+            assertEq(perms[i].funcSelector, expectedPerms[i].funcSelector);
+        }
+    }
+
+    // --- LEND ----------------------------------------------------------
+
     function testRevert_LendMaliciousCooler() public {
+        // Clearinghouse only accepts coolers created by the CoolerFactory
         Cooler malicious = new Cooler(address(this), gohm, dai);
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
         clearinghouse.lend(malicious, 1e18);
@@ -162,38 +206,41 @@ contract ClearingHouseTest is Test {
         MockERC20 wagmi = new MockERC20("wagmi", "WAGMI", 18);
         MockERC20 ngmi = new MockERC20("ngmi", "NGMI", 18);
 
-        Cooler badCooler = Cooler(factory.generate(wagmi, ngmi));
-
+        // Clearinghouse only accepts gOHM-DAI
+        Cooler badCooler1 = Cooler(factory.generate(wagmi, ngmi));
         vm.expectRevert(ClearingHouse.BadEscrow.selector);
-        clearinghouse.lend(badCooler, 1e18);
+        clearinghouse.lend(badCooler1, 1e18);
+        // Clearinghouse only accepts gOHM-DAI
+        Cooler badCooler2 = Cooler(factory.generate(gohm, ngmi));
+        vm.expectRevert(ClearingHouse.BadEscrow.selector);
+        clearinghouse.lend(badCooler2, 1e18);
+        // Clearinghouse only accepts gOHM-DAI
+        Cooler badCooler3 = Cooler(factory.generate(wagmi, dai));
+        vm.expectRevert(ClearingHouse.BadEscrow.selector);
+        clearinghouse.lend(badCooler3, 1e18);
     }
+    
+    function test_LendToCooler(uint256 loanAmount_) public {
+        // Loan Amount cannot exceed Clearinghouse funding
+        loanAmount_ = bound(loanAmount_, 0, clearinghouse.FUND_AMOUNT());
 
-    function test_LendToCooler(uint256 loanAmt_) public {
-        vm.assume(loanAmt_ > 0);
-        vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
-
-        (Cooler cooler, uint256 gohmNeeded, ) = _createLoanForUser(loanAmt_);
+        (Cooler cooler, uint256 gohmNeeded, ) = _createLoanForUser(loanAmount_);
 
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
-        assertEq(dai.balanceOf(address(user)), loanAmt_, "User DAI balance incorrect");
+        assertEq(dai.balanceOf(address(user)), loanAmount_, "User DAI balance incorrect");
         assertEq(dai.balanceOf(address(cooler)), 0, "Cooler DAI balance incorrect");
         assertEq(clearinghouse.receivables(), clearinghouse.loanForCollateral(gohmNeeded), "Clearinghouse receivables incorrect");
     }
 
-    function test_RollLoan(uint256 loanAmt_) public {
-        vm.assume(loanAmt_ > 0);
-        vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
+    function test_RollLoan(uint256 loanAmount_) public {
+        bound(loanAmount_, 0, clearinghouse.FUND_AMOUNT());
 
-        (
-            Cooler cooler,
-            uint256 gohmNeeded,
-            uint256 loanID
-        ) = _createLoanForUser(loanAmt_);
+        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
 
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward 2 months (half duration of loan)
-        skip(8 weeks);
+        _skipDays(120);
 
         // Roll loan
         clearinghouse.roll(cooler, loanID);
