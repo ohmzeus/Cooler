@@ -244,11 +244,8 @@ contract Cooler {
         if (callback) {
             // Ensure that the lender implements the CoolerCallback abstract
             try ICoolerCallback(msg.sender).isCoolerCallback() returns (bool callbackCheck) {
-                if (callbackCheck) ICoolerCallback(msg.sender).onRepay(loanID, 0);
-                else revert NotCoolerCallback();                
-            } catch {
-                revert NotCoolerCallback();
-            }
+                if (!callbackCheck) revert NotCoolerCallback();                
+            } catch { revert NotCoolerCallback(); }
         }
     }
 
