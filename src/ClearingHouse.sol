@@ -99,16 +99,24 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
     {
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
-        requests = new Permissions[](3);
+        requests = new Permissions[](5);
         requests[0] = Permissions(
             TRSRY_KEYCODE,
-            TRSRY.withdrawReserves.selector
+            TRSRY.setDebt.selector
         );
         requests[1] = Permissions(
             TRSRY_KEYCODE,
-            TRSRY.increaseWithdrawApproval.selector
+            TRSRY.repayDebt.selector
         );
-        requests[2] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
+        requests[2] = Permissions(
+            TRSRY_KEYCODE,
+            TRSRY.incurDebt.selector
+        );
+        requests[3] = Permissions(
+            TRSRY_KEYCODE,
+            TRSRY.increaseDebtorApproval.selector
+        );
+        requests[4] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
     // --- OPERATION -------------------------------------------------
@@ -232,19 +240,28 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
         catch { token.transfer(address(TRSRY), amount); }
     }
 
-    /// @notice Allow any address to burn collateral returned to clearinghouse
-    function burn() external {
-        uint256 balance = gOHM.balanceOf(address(this));
-        gOHM.approve(address(staking), balance);
-
-        // Unstake gOHM then burn
-        MINTR.burnOhm(
-            address(this),
-            staking.unstake(address(this), balance, false, false)
-        );
+    /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
+    /// @param loanID of loan
+    function onDefault(uint256 loanID) external override {
+        // Validate caller is cooler
+        if (!factory.created(msg.sender)) revert OnlyFromFactory();
+        // Validate lender is the clearinghouse
+        (, uint256 amount,, uint256 collateral,, address lender,,) = Cooler(msg.sender).loans(loanID);
+        if (lender != address(this)) revert BadEscrow();
 
         // Decrement loan receivables
-        receivables -= loanForCollateral(balance);
+        receivables -= amount;
+
+        // Update outstanding debt owed to the Treasury upon default.
+        uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
+        TRSRY.setDebt(address(this), dai, outstandingDebt - amount);
+
+        // Unstake and burn the collateral of the defaulted loan.
+        gOHM.approve(address(staking), collateral);
+        MINTR.burnOhm(
+            address(this),
+            staking.unstake(address(this), collateral, false, false)
+        );
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------

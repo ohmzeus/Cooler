@@ -4,12 +4,9 @@ pragma solidity ^0.8.0;
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 
-import {CoolerFactory} from "./CoolerFactory.sol";
-import {IDelegate} from "./IDelegate.sol";
-
-interface ICoolerCallback {
-    function onRepay(uint256 loanID, uint256 amount) external;
-}
+import {CoolerFactory} from "src/CoolerFactory.sol";
+import {IDelegate} from "src/IDelegate.sol";
+import {ICoolerCallback} from "src/ICoolerCallback.sol";
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
 ///         for a specific user and debt-collateral pair.
@@ -47,7 +44,7 @@ contract Cooler {
         uint256 expiry; // the time when the loan defaults,
         address lender; // and the lender's address.
         bool repayDirect; // If this is false, repaid tokens must be claimed by lender.
-        bool repayCallback; // If this is true, call repay() function on lender address.
+        bool callback; // If this is true, call repay() and defaulted() functions on lender address.
     }
 
     // Facilitates transfer of lender ownership to new address
@@ -151,7 +148,7 @@ contract Cooler {
         debt.safeTransferFrom(msg.sender, repayTo, repaid);
         collateral.safeTransfer(owner, decollateralized);
 
-        if (loan.repayCallback) ICoolerCallback(loan.lender).onRepay(loanID, repaid);
+        if (loan.callback) ICoolerCallback(loan.lender).onRepay(loanID, repaid);
     }
 
     /// @notice claim debt tokens for lender if repayDirect was false
@@ -203,12 +200,12 @@ contract Cooler {
     /// @notice fill a requested loan as a lender
     /// @param reqID index of request in requests[]
     /// @param repayDirect lender should input false if concerned about debt token blacklisting
-    /// @param repayCallback lender can insert callback at end for accounting
+    /// @param callback lender can insert callback at end for accounting
     /// @return loanID index of loan in loans[]
     function clear(
         uint256 reqID,
         bool repayDirect,
-        bool repayCallback
+        bool callback
     ) external returns (uint256 loanID) {
         Request storage req = requests[reqID];
 
@@ -231,13 +228,13 @@ contract Cooler {
                 expiration,
                 msg.sender,
                 repayDirect,
-                repayCallback
+                callback
             )
         );
         debt.safeTransferFrom(msg.sender, owner, req.amount);
 
         // Validate callback
-        if (repayCallback) ICoolerCallback(msg.sender).onRepay(loanID, 0);
+        if (callback) ICoolerCallback(msg.sender).onRepay(loanID, 0);
     }
 
     /// @notice provide terms for loan to roll over
@@ -274,6 +271,8 @@ contract Cooler {
         if (block.timestamp <= loan.expiry) revert NoDefault();
 
         collateral.safeTransfer(loan.lender, loan.collateral);
+
+        if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID);
         return loan.collateral;
     }
 
