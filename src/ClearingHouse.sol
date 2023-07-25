@@ -203,8 +203,8 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
             //console.log("clearinghouse balance: ", balance / 1e18);
             //console.log("treasury balance: ", dai.balanceOf(address(TRSRY)) / 1e18);
 
-            TRSRY.increaseWithdrawApproval(address(this), dai, amount);
-            TRSRY.withdrawReserves(address(this), dai, amount);
+            TRSRY.increaseDebtorApproval(address(this), dai, amount);
+            TRSRY.incurDebt(dai, amount);
             sweep();
         } else {
             // Withdraw from sDAI to the treasury
@@ -222,12 +222,14 @@ contract ClearingHouse is Policy, RolesConsumer, ICoolerCallback {
     /// @notice Return funds to treasury.
     /// @param token to transfer
     /// @param amount to transfer
-    function defund(
-        ERC20 token,
-        uint256 amount
-    ) external onlyRole("cooler_overseer") {
+    function defund(ERC20 token, uint256 amount) external onlyRole("cooler_overseer") {
         if (token == gOHM) revert OnlyBurnable();
-        token.transfer(address(TRSRY), amount);
+
+        // Return funds to the Treasury by using `repayDebt`
+        try TRSRY.repayDebt(address(this), token, amount) {}
+        // Use a regular ERC20 transfer as a fallback function
+        // for tokens weren't borrowed from Treasury
+        catch { token.transfer(address(TRSRY), amount); }
     }
 
     /// @notice Allow any address to burn collateral returned to clearinghouse
