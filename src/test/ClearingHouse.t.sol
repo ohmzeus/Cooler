@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {UserFactory} from "test/lib/UserFactory.sol";
 
-import {MockOhm} from "test/lib/MockOhm.sol";
+import {MockOhm} from "test/mocks/OlympusMocks.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC4626} from "solmate/test/utils/mocks/MockERC4626.sol";
 

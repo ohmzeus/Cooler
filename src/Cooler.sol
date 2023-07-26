@@ -124,7 +124,7 @@ contract Cooler {
     /// @notice Repay a loan to get the collateral back.
     /// @param loanID_ index of loan in loans[]
     /// @param repaid_ debt tokens to be repaid.
-    function repayLoan(uint256 loanID_, uint256 repaid_) external {
+    function repayLoan(uint256 loanID_, uint256 repaid_) external returns (uint256) {
         Loan storage loan = loans[loanID_];
 
         if (block.timestamp > loan.expiry) revert Default();
@@ -152,6 +152,7 @@ contract Cooler {
         collateral.safeTransfer(owner, decollateralized);
 
         if (loan.callback) ICoolerCallback(loan.lender).onRepay(loanID_, repaid_);
+        return decollateralized;
     }
 
     /// @notice Roll a loan over with new terms.
@@ -275,7 +276,7 @@ contract Cooler {
 
         collateral.safeTransfer(loan.lender, loan.collateral);
 
-        if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID_);
+        if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
         return loan.collateral;
     }
 

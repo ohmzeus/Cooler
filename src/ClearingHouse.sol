@@ -102,8 +102,8 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param amount_ of DAI to lend.
     /// @return the ID of the new loan.
     function lendToCooler(Cooler cooler_, uint256 amount_) external returns (uint256) {
-        // Attempt a treasury rebalance.
-        rebalanceTreasury();
+        // Attempt a clearinghouse <> treasury rebalance.
+        rebalance();
         // Validate that cooler was deployed by the trusted factory.
         if (!factory.created(address(cooler_))) revert OnlyFromFactory();
         // Validate cooler collateral and debt tokens.
@@ -149,7 +149,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     /// @notice Callback to attept a treasury rebalance.
     function onRoll(uint256) external override {
-        rebalanceTreasury();
+        rebalance();
     }
 
     /// @notice Callback to decrement loan receivables.
@@ -158,37 +158,31 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     function onRepay(uint256 loanID_, uint256 amount_) external override {
         // Validate caller is cooler
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
-        // Validate lender is the clearing house
-        (,,,,, address lender,,) = Cooler(msg.sender).loans(loanID_);
-        if (lender != address(this)) revert BadEscrow();
 
         // Decrement loan receivables.
         receivables -= amount_;
-        // Attempt a treasury rebalance.
-        rebalanceTreasury();
+        // Attempt a clearinghouse <> treasury rebalance.
+        rebalance();
     }
 
     /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
     /// @param loanID_ of loan in cooler.
-    function onDefault(uint256 loanID_) external override {
+    function onDefault(uint256 loanID_, uint256 amount_, uint256 collateral_) external override {
         // Validate caller is cooler.
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
-        // Validate lender is the clearinghouse.
-        (, uint256 amount_,, uint256 collateral,, address lender,,) = Cooler(msg.sender).loans(loanID_);
-        if (lender != address(this)) revert BadEscrow();
 
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         TRSRY.setDebt(address(this), dai, outstandingDebt - amount_);
 
         // Unstake and burn the collateral of the defaulted loan.
-        gOHM.approve(address(staking), collateral);
-        MINTR.burnOhm(address(this), staking.unstake(address(this), collateral, false, false));
+        gOHM.approve(address(staking), collateral_);
+        MINTR.burnOhm(address(this), staking.unstake(address(this), collateral_, false, false));
 
         // Decrement loan receivables.
-        receivables -= amount_;
-        // Attempt a treasury rebalance.
-        rebalanceTreasury();
+        receivables = (receivables > amount_) ? receivables - amount_ : 0;
+        // Attempt a clearinghouse <> treasury rebalance.
+        rebalance();
     }
 
     // --- FUNDING ---------------------------------------------------
@@ -197,7 +191,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     ///         Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
     ///         If several rebalances are available (because some were missed), calling this
     ///         function several times won't impact the funds controlled by the contract.
-    function rebalanceTreasury() public returns (bool) {
+    function rebalance() public returns (bool) {
         if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
