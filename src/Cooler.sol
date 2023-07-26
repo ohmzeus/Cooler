@@ -4,9 +4,9 @@ pragma solidity ^0.8.15;
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 
-import {CoolerFactory} from "src/CoolerFactory.sol";
 import {IDelegate} from "interfaces/IDelegate.sol";
-import {ICoolerCallback} from "interfaces/ICoolerCallback.sol";
+import {CoolerFactory} from "src/CoolerFactory.sol";
+import {CoolerCallback} from "src/CoolerCallback.sol";
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
 ///          loans for a specific user and debt-collateral pair.
@@ -151,7 +151,7 @@ contract Cooler {
         debt.safeTransferFrom(msg.sender, repayTo, repaid_);
         collateral.safeTransfer(owner, decollateralized);
 
-        if (loan.callback) ICoolerCallback(loan.lender).onRepay(loanID_, repaid_);
+        if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, repaid_);
         return decollateralized;
     }
 
@@ -178,7 +178,7 @@ contract Cooler {
             collateral.safeTransferFrom(msg.sender, address(this), newCollateral);
         }
 
-        if (loan.callback) ICoolerCallback(loan.lender).onRoll(loanID_);
+        if (loan.callback) CoolerCallback(loan.lender).onRoll(loanID_);
     }
 
     /// @notice Delegate voting power on collateral.
@@ -202,7 +202,7 @@ contract Cooler {
     ) external returns (uint256 loanID) {
         Request storage req = requests[reqID_];
         // Ensure lender implements the CoolerCallback abstract
-        if (isCallback_) if (!ICoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+        if (isCallback_) if (!CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
 
@@ -276,7 +276,7 @@ contract Cooler {
 
         collateral.safeTransfer(loan.lender, loan.collateral);
 
-        if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
+        if (loan.callback) CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
         return loan.collateral;
     }
 
