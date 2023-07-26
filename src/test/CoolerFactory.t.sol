@@ -10,7 +10,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 
 // Tests for CoolerFactory
 //
-// [X] generate
+// [X] generateCooler
 //     [X] generates a cooler for new user <> collateral <> debt combinations
 //     [X] returns address if a cooler already exists
 // [X] newEvent
@@ -53,26 +53,26 @@ contract CoolerFactoryTest is Test {
     }
 
     // -- CoolerFactory Functions -------------------------------------------------
-    function test_generate() public {
+    function test_generateCooler() public {
 
         vm.startPrank(alice);
         // First time (alice <> collateral <> debt) the cooler is generated
-        address coolerAlice = coolerFactory.generate(collateral, debt);
+        address coolerAlice = coolerFactory.generateCooler(collateral, debt);
         assertEq(true, coolerFactory.created(coolerAlice));
         assertEq(coolerAlice, coolerFactory.coolersFor(collateral, debt, 0));
         // Second time (alice <> collateral <> debt) the cooler is just read
-        address readCoolerAlice = coolerFactory.generate(collateral, debt);
+        address readCoolerAlice = coolerFactory.generateCooler(collateral, debt);
         assertEq(true, coolerFactory.created(readCoolerAlice));
         assertEq(readCoolerAlice, coolerFactory.coolersFor(collateral, debt, 0));
         vm.stopPrank();
 
         vm.prank(bob);
         // First time (bob <> collateral <> debt) the cooler is generated
-        address coolerBob = coolerFactory.generate(collateral, debt);
+        address coolerBob = coolerFactory.generateCooler(collateral, debt);
         assertEq(true, coolerFactory.created(coolerBob));
         assertEq(coolerBob, coolerFactory.coolersFor(collateral, debt, 1));
         // First time (bob <> collateral <> other debt) the cooler is generated
-        address otherCoolerBob = coolerFactory.generate(collateral, otherDebt);
+        address otherCoolerBob = coolerFactory.generateCooler(collateral, otherDebt);
         assertEq(true, coolerFactory.created(otherCoolerBob));
         assertEq(otherCoolerBob, coolerFactory.coolersFor(collateral, otherDebt, 0));
     }
@@ -82,7 +82,7 @@ contract CoolerFactoryTest is Test {
         uint256 amount = 1234;
 
         vm.prank(alice);
-        address cooler = coolerFactory.generate(collateral, debt);
+        address cooler = coolerFactory.generateCooler(collateral, debt);
 
         vm.startPrank(cooler);
         // Clear Event
