@@ -8,8 +8,8 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 import {IDelegate} from "interfaces/IDelegate.sol";
 import {ICoolerCallback} from "interfaces/ICoolerCallback.sol";
 
-/// @notice A Cooler is a smart contract escrow that facilitates fixed-duration loans
-///         for a specific user and debt-collateral pair.
+/// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
+///          loans for a specific user and debt-collateral pair.
 contract Cooler {
     using SafeTransferLib for ERC20;
 
@@ -28,28 +28,27 @@ contract Cooler {
     Request[] public requests;
     struct Request {
         // A loan begins with a borrow request. It specifies:
-        uint256 amount; // the amount they want to borrow,
-        uint256 interest; // the annualized percentage they will pay as interest,
-        uint256 loanToCollateral; // the loan-to-collateral ratio they want,
-        uint256 duration; // and the length of time until the loan defaults.
-        bool active; // Any lender can clear an active loan request.
+        uint256 amount;             // Amount to be borrowed.
+        uint256 interest;           // Annualized percentage to be paid as interest.
+        uint256 loanToCollateral;   // Requested loan-to-collateral ratio.
+        uint256 duration;           // Time to repay the loan before it defaults.
+        bool active;                // Any lender can clear an active loan request.
     }
 
     Loan[] public loans;
     struct Loan {
         // A request is converted to a loan when a lender clears it.
-        Request request; // The terms of the loan are saved, along with:
-        //uint256 requestID; // the index of the request in requests[],
-        uint256 amount; // the amount of debt owed,
-        uint256 repaid; // the amount of debt tokens repaid but unclaimed,
-        uint256 collateral; // the amount of collateral pledged,
-        uint256 expiry; // the time when the loan defaults,
-        address lender; // and the lender's address.
-        bool repayDirect; // If this is false, repaid tokens must be claimed by lender.
-        bool callback; // If this is true, call repay() and defaulted() functions on lender address.
+        Request request;        // Loan terms specified in the request.
+        uint256 amount;         // Amount of debt owed to the lender.
+        uint256 unclaimed;      // Amount of debt tokens repaid but unclaimed.
+        uint256 collateral;     // Amount of collateral pledged.
+        uint256 expiry;         // Time when the loan defaults.
+        address lender;         // Lender's address.
+        bool repayDirect;       // If this is false, repaid tokens must be claimed by lender.
+        bool callback;          // If this is true, the lender must inherit CoolerCallback.
     }
 
-    // Facilitates transfer of lender ownership to new address
+    // Facilitates transfer of lender ownership to new addresses
     mapping(uint256 => address) public approvals;
 
     // --- IMMUTABLES ------------------------------------------------
@@ -68,48 +67,47 @@ contract Cooler {
 
     // --- INITIALIZATION --------------------------------------------
 
-    constructor(address o, ERC20 c, ERC20 d) {
-        owner = o;
-        collateral = c;
-        debt = d;
+    constructor(address owner_, ERC20 collateral_, ERC20 debt_) {
+        owner = owner_;
+        collateral = collateral_;
+        debt = debt_;
         factory = CoolerFactory(msg.sender);
     }
 
     // --- BORROWER --------------------------------------------------
 
-    /// @notice request a loan with given parameters
-    /// @notice collateral is taken at time of request
-    /// @param amount of debt tokens to borrow
-    /// @param interest to pay (annualized % of 'amount')
-    /// @param loanToCollateral debt tokens per collateral token pledged
-    /// @param duration of loan tenure in seconds
-    /// @param reqID index of request in requests[]
-    function request(
-        uint256 amount,
-        uint256 interest,
-        uint256 loanToCollateral,
-        uint256 duration
+    /// @notice Request a loan with given parameters.
+    ///         Collateral is taken at time of request.
+    /// @param amount_ of debt tokens to borrow.
+    /// @param interest_ to pay (annualized % of 'amount_')
+    /// @param loanToCollateral_ debt tokens per collateral token pledged.
+    /// @param duration_ of loan tenure in seconds.
+    function requestLoan(
+        uint256 amount_,
+        uint256 interest_,
+        uint256 loanToCollateral_,
+        uint256 duration_
     ) external returns (uint256 reqID) {
         reqID = requests.length;
         factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
         requests.push(
-            Request(amount, interest, loanToCollateral, duration, true)
+            Request(amount_, interest_, loanToCollateral_, duration_, true)
         );
         collateral.safeTransferFrom(
             msg.sender,
             address(this),
-            collateralFor(amount, loanToCollateral)
+            collateralFor(amount_, loanToCollateral_)
         );
     }
 
-    /// @notice cancel a loan request and return collateral
-    /// @param reqID index of request in requests[]
-    function rescind(uint256 reqID) external {
+    /// @notice Cancel a loan request and get the collateral back.
+    /// @param reqID_ index of request in requests[]
+    function rescindRequest(uint256 reqID_) external {
         if (msg.sender != owner) revert OnlyApproved();
 
-        factory.newEvent(reqID, CoolerFactory.Events.Rescind, 0);
+        factory.newEvent(reqID_, CoolerFactory.Events.Rescind, 0);
 
-        Request storage req = requests[reqID];
+        Request storage req = requests[reqID_];
 
         if (!req.active) revert Deactivated();
 
@@ -120,58 +118,49 @@ contract Cooler {
         );
     }
 
-    /// @notice repay a loan to recoup collateral
-    /// @param loanID index of loan in loans[]
-    /// @param repaid debt tokens to repay
-    function repay(uint256 loanID, uint256 repaid) external {
-        Loan storage loan = loans[loanID];
+    /// @notice Repay a loan to get the collateral back.
+    /// @param loanID_ index of loan in loans[]
+    /// @param repaid_ debt tokens to be repaid.
+    function repayLoan(uint256 loanID_, uint256 repaid_) external {
+        Loan storage loan = loans[loanID_];
 
         if (block.timestamp > loan.expiry) revert Default();
 
-        if (repaid > loan.amount) repaid = loan.amount;
+        if (repaid_ > loan.amount) repaid_ = loan.amount;
 
-        uint256 decollateralized = (loan.collateral * repaid) / loan.amount;
+        uint256 decollateralized = (loan.collateral * repaid_) / loan.amount;
         if (decollateralized == 0) revert ZeroCollateralReturned();
 
-        factory.newEvent(loanID, CoolerFactory.Events.Repay, repaid);
+        factory.newEvent(loanID_, CoolerFactory.Events.Repay, repaid_);
 
-        loan.amount -= repaid;
+        loan.amount -= repaid_;
         loan.collateral -= decollateralized;
 
-        // Check if repayment needs to be claimed or not
         address repayTo;
+        // Check wether repayment needs to be manually claimed or not.
         if(loan.repayDirect) {
             repayTo = loan.lender;
         } else {
             repayTo = address(this);
-            loan.repaid += repaid;
+            loan.unclaimed += repaid_;
         }
 
-        debt.safeTransferFrom(msg.sender, repayTo, repaid);
+        debt.safeTransferFrom(msg.sender, repayTo, repaid_);
         collateral.safeTransfer(owner, decollateralized);
 
-        if (loan.callback) ICoolerCallback(loan.lender).onRepay(loanID, repaid);
+        if (loan.callback) ICoolerCallback(loan.lender).onRepay(loanID_, repaid_);
     }
 
-    /// @notice claim debt tokens for lender if repayDirect was false
-    /// @param loanID index of loan in loans[]
-    function claimRepaid(uint256 loanID) external {
-        Loan storage loan = loans[loanID];
-        uint256 claim = loan.repaid;
-        loan.repaid = 0;
-        debt.safeTransfer(loan.lender, claim);
-    }
-
-    /// @notice Roll a loan over with new terms
-    /// @notice uses terms from request
-    /// @param loanID index of loan in loans[]
-    function roll(uint256 loanID) external {
-        Loan memory loan = loans[loanID];
+    /// @notice Roll a loan over with new terms.
+    ///         provideNewTermsForRoll must have been called beforehand by the lender.
+    /// @param loanID_ index of loan in loans[]
+    function rollLoan(uint256 loanID_) external {
+        Loan memory loan = loans[loanID_];
 
         if (block.timestamp > loan.expiry) revert Default();
         if (!loan.request.active) revert NotRollable();
 
-        uint256 newCollateral = newCollateralFor(loanID);
+        uint256 newCollateral = newCollateralFor(loanID_);
         uint256 newDebt = interestFor(
             loan.amount,
             loan.request.interest,
@@ -183,7 +172,7 @@ contract Cooler {
         loan.expiry += loan.request.duration;
 
         // Save updated loan info back to loans array
-        loans[loanID] = loan;
+        loans[loanID_] = loan;
 
         if (newCollateral > 0) {
             collateral.safeTransferFrom(
@@ -193,33 +182,36 @@ contract Cooler {
             );
         }
 
-        if (loan.callback) ICoolerCallback(loan.lender).onRoll(loanID);
+        if (loan.callback) ICoolerCallback(loan.lender).onRoll(loanID_);
     }
 
-    /// @notice delegate voting power on collateral
-    /// @param to address to delegate
-    function delegate(address to) external {
+    /// @notice Delegate voting power on collateral.
+    /// @param to_ address to delegate.
+    function delegateVoting(address to_) external {
         if (msg.sender != owner) revert OnlyApproved();
-        IDelegate(address(collateral)).delegate(to);
+        IDelegate(address(collateral)).delegate(to_);
     }
 
     // --- LENDER ----------------------------------------------------
 
-    /// @notice fill a requested loan as a lender
-    /// @param reqID index of request in requests[]
-    /// @param repayDirect lender should input false if concerned about debt token blacklisting
-    /// @param callback lender can insert callback at end for accounting
+    /// @notice Fill a requested loan as a lender.
+    /// @param reqID_ index of request in requests[]
+    /// @param repayDirect_ lender should input false if concerned about debt token blacklisting.
+    /// @param isCallback_ true if the lender implements the CoolerCallback abstract. False otherwise.
     /// @return loanID index of loan in loans[]
-    function clear(
-        uint256 reqID,
-        bool repayDirect,
-        bool callback
+    function clearRequest(
+        uint256 reqID_,
+        bool repayDirect_,
+        bool isCallback_
     ) external returns (uint256 loanID) {
-        Request storage req = requests[reqID];
-
-        factory.newEvent(reqID, CoolerFactory.Events.Clear, 0);
-
+        Request storage req = requests[reqID_];
+        // Ensure lender implements the CoolerCallback abstract
+        if (isCallback_) if (!ICoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+        // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
+
+        // Clear the loan request
+        factory.newEvent(reqID_, CoolerFactory.Events.Clear, 0);
         req.active = false;
 
         uint256 interest = interestFor(req.amount, req.interest, req.duration);
@@ -235,104 +227,107 @@ contract Cooler {
                 collat,
                 expiration,
                 msg.sender,
-                repayDirect,
-                callback
+                repayDirect_,
+                isCallback_
             )
         );
-        debt.safeTransferFrom(msg.sender, owner, req.amount);
-
-        if (callback) {
-            // Ensure that the lender implements the CoolerCallback abstract
-            try ICoolerCallback(msg.sender).isCoolerCallback() returns (bool callbackCheck) {
-                if (!callbackCheck) revert NotCoolerCallback();                
-            } catch { revert NotCoolerCallback(); }
-        }
+        debt.safeTransferFrom(msg.sender, owner, req.amount);        
     }
 
-    /// @notice provide terms for loan to roll over
-    /// @param loanID index of loan in loans[]
-    /// @param interest to pay (annualized % of 'amount')
-    /// @param loanToCollateral debt tokens per collateral token pledged
-    /// @param duration of loan tenure in seconds
+    /// @notice Provide new terms for loan to be rolled over.
+    /// @param loanID_ index of loan in loans[]
+    /// @param interest_ to pay (annualized % of 'amount')
+    /// @param loanToCollateral_ debt tokens per collateral token pledged.
+    /// @param duration_ of loan tenure in seconds.
     function provideNewTermsForRoll(
-        uint256 loanID,
-        uint256 interest,
-        uint256 loanToCollateral,
-        uint256 duration
+        uint256 loanID_,
+        uint256 interest_,
+        uint256 loanToCollateral_,
+        uint256 duration_
     ) external {
-        Loan storage loan = loans[loanID];
+        Loan storage loan = loans[loanID_];
 
         if (msg.sender != loan.lender) revert OnlyApproved();
 
         loan.request =
             Request(
                 loan.amount,
-                interest,
-                loanToCollateral,
-                duration,
+                interest_,
+                loanToCollateral_,
+                duration_,
                 true
             );
     }
 
-    /// @notice send collateral to lender upon default
-    /// @param loanID index of loan in loans[]
-    /// @return uint256 collateral amount
-    function defaulted(uint256 loanID) external returns (uint256) {
-        Loan memory loan = loans[loanID];
-        delete loans[loanID];
+    /// @notice Claim debt tokens if repayDirect was false
+    /// @param loanID_ index of loan in loans[]
+    function claimRepaid(uint256 loanID_) external {
+        Loan storage loan = loans[loanID_];
+        uint256 claim = loan.unclaimed;
+        delete loan.unclaimed;
+        debt.safeTransfer(loan.lender, claim);
+    }
+
+    /// @notice Claim collateral upon loan default.
+    /// @param loanID_ index of loan in loans[]
+    /// @return uint256 collateral amount.
+    function claimDefaulted(uint256 loanID_) external returns (uint256) {
+        Loan memory loan = loans[loanID_];
+        delete loans[loanID_];
 
         if (block.timestamp <= loan.expiry) revert NoDefault();
 
         collateral.safeTransfer(loan.lender, loan.collateral);
 
-        if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID);
+        if (loan.callback) ICoolerCallback(loan.lender).onDefault(loanID_);
         return loan.collateral;
     }
 
-    /// @notice approve transfer of loan ownership to new address
-    /// @param to address to approve
-    /// @param loanID index of loan in loans[]
-    function approve(address to, uint256 loanID) external {
-        Loan memory loan = loans[loanID];
+    /// @notice Approve transfer of loan ownership rights to a new address.
+    /// @param to_ address to be approved.
+    /// @param loanID_ index of loan in loans[]
+    function approveTransfer(address to_, uint256 loanID_) external {
+        Loan memory loan = loans[loanID_];
 
         if (msg.sender != loan.lender) revert OnlyApproved();
 
-        approvals[loanID] = to;
+        approvals[loanID_] = to_;
     }
 
-    /// @notice execute approved transfer of loan ownership
-    /// @param loanID index of loan in loans[]
-    function transfer(uint256 loanID) external {
-        if (msg.sender != approvals[loanID]) revert OnlyApproved();
+    /// @notice Execute loan ownership transfer. Must be previously approved by the lender.
+    /// @param loanID_ index of loan in loans[]
+    function transferOwnership(uint256 loanID_) external {
+        if (msg.sender != approvals[loanID_]) revert OnlyApproved();
 
-        approvals[loanID] = address(0);
-        loans[loanID].lender = msg.sender;
+        approvals[loanID_] = address(0);
+        loans[loanID_].lender = msg.sender;
     }
 
-    /// @notice turn direct repayment off or on
-    /// @param loanID of lender's loan
-    function toggleDirect(uint256 loanID) external {
-        Loan storage loan = loans[loanID];
+    /// @notice Set direct repayment of a given loan.
+    /// @param loanID_ of lender's loan.
+    /// @param direct_ true if a direct repayment is desired. False otherwise.
+    function setDirectRepay(uint256 loanID_, bool direct_) external {
+        Loan storage loan = loans[loanID_];
         if (msg.sender != loan.lender) revert OnlyApproved();
-        loan.repayDirect = !loan.repayDirect;
+        loan.repayDirect = direct_;
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
 
-    /// @notice compute collateral needed for loan amount at given loan to collateral ratio
-    /// @param amount of collateral tokens
-    /// @param loanToCollateral ratio for loan
+    /// @notice Compute collateral needed for loan amount at given loan to collateral ratio.
+    /// @param amount_ of collateral tokens.
+    /// @param loanToCollateral_ ratio for loan.
     function collateralFor(
-        uint256 amount,
-        uint256 loanToCollateral
+        uint256 amount_,
+        uint256 loanToCollateral_
     ) public pure returns (uint256) {
-        return (amount * DECIMALS) / loanToCollateral;
+        return (amount_ * DECIMALS) / loanToCollateral_;
     }
 
     /// @notice compute collateral needed to roll loan
-    /// @param loanID of loan to roll
-    function newCollateralFor(uint256 loanID) public view returns (uint256) {
-        Loan memory loan = loans[loanID];
+    /// @param loanID_ of loan to roll
+    function newCollateralFor(uint256 loanID_) public view returns (uint256) {
+        Loan memory loan = loans[loanID_];
         uint256 neededCollateral = collateralFor(
             loan.amount,
             loan.request.loanToCollateral
@@ -344,41 +339,45 @@ contract Cooler {
             0;
     }
 
-    /// @notice compute interest cost on amount for duration at given annualized rate
-    /// @param amount of debt tokens
-    /// @param rate of interest (annualized)
-    /// @param duration of loan in seconds
-    /// @return interest as a number of debt tokens
+    /// @notice Compute interest cost on amount for duration at given annualized rate.
+    /// @param amount_ of debt tokens.
+    /// @param rate_ of interest (annualized)
+    /// @param duration_ of loan in seconds.
+    /// @return Interest in debt token terms.
     function interestFor(
-        uint256 amount,
-        uint256 rate,
-        uint256 duration
+        uint256 amount_,
+        uint256 rate_,
+        uint256 duration_
     ) public pure returns (uint256) {
-        uint256 interest = (rate * duration) / 365 days;
-        return (amount * interest) / DECIMALS;
+        uint256 interest = (rate_ * duration_) / 365 days;
+        return (amount_ * interest) / DECIMALS;
     }
 
-    /// @notice check if given loan is in default
-    /// @param loanID index of loan in loans[]
-    /// @return defaulted status
-    function isDefaulted(uint256 loanID) external view returns (bool) {
-        return block.timestamp > loans[loanID].expiry;
+    /// @notice Check if given loan is in default.
+    /// @param loanID_ index of loan in loans[]
+    /// @return Defaulted status.
+    function isDefaulted(uint256 loanID_) external view returns (bool) {
+        return block.timestamp > loans[loanID_].expiry;
     }
 
-    /// @notice check if given request is active
-    /// @param reqID index of request in requests[]
-    /// @return active status
-    function isActive(uint256 reqID) external view returns (bool) {
-        return requests[reqID].active;
+    /// @notice Check if a given request is active.
+    /// @param reqID_ index of request in requests[]
+    /// @return Active status.
+    function isActive(uint256 reqID_) external view returns (bool) {
+        return requests[reqID_].active;
     }
 
-    /// @notice Getter for Request data as a struct
-    function getRequest(uint256 reqID) external view returns (Request memory) {
-        return requests[reqID];
+    /// @notice Getter for Request data as a struct.
+    /// @param reqID_ index of request in requests[]
+    /// @return Request struct.
+    function getRequest(uint256 reqID_) external view returns (Request memory) {
+        return requests[reqID_];
     }
 
-    /// @notice Getter for Loan data as a struct
-    function getLoan(uint256 loanID) external view returns (Loan memory) {
-        return loans[loanID];
+    /// @notice Getter for Loan data as a struct.
+    /// @param loanID_ index of loan in loans[]
+    /// @return Loan struct.
+    function getLoan(uint256 loanID_) external view returns (Loan memory) {
+        return loans[loanID_];
     }
 }

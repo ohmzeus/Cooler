@@ -15,19 +15,19 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //
 // [X] constructor
 //     [X] immutable variables are properly stored
-// [X] request
+// [X] requestLoan
 //     [X] new request is stored 
 //     [X] user and cooler new collateral balances are correct
-// [X] rescind
+// [X] rescindRequest
 //     [X] only owner can rescind
 //     [X] only active requests can be rescinded
 //     [X] request is updated 
 //     [X] user and cooler new collateral balances are correct
-// [X] clear
+// [X] clearRequest
 //     [X] only active requests can be cleared
 //     [X] request cleared and a new loan is created
 //     [X] user and lender new debt balances are correct
-// [X] repay
+// [X] repayLoan
 //     [X] only possible before expiry
 //     [X] loan is updated
 //     [X] direct (true): new collateral and debt balances are correct
@@ -37,10 +37,10 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 // [X] claimRepaid
 //     [X] loan is updated
 //     [X] lender and cooler new debt balances are correct
-// [X] toggleDirect
+// [X] setDirectRepay
 //     [X] only the lender can toggle
 //     [X] loan is properly updated
-// [X] roll
+// [X] rollLoan
 //     [X] only possible before expiry
 //     [X] only possible for active loans
 //     [X] loan is updated
@@ -48,16 +48,16 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 // [X] provideNewTermsForRoll
 //     [X] only lender can set new terms
 //     [X] request is properly updated
-// [X] defaulted
+// [X] claimDefaulted
 //     [X] only possible after expiry
 //     [X] lender and cooler new collateral balances are correct
-// [X] delegate
+// [X] delegateVoting
 //     [X] only owner can delegate
 //     [X] collateral voting power is properly delegated
-// [X] approve
+// [X] approveTransfer
 //     [X] only the lender can approve a transfer
 //     [X] approval stored
-// [X] transfer
+// [X] transferOwnership
 //     [X] only the approved addresses can transfer
 //     [X] loan is properly updated
 
@@ -110,7 +110,7 @@ contract CoolerTest is Test {
 
     function _initCooler() internal returns(Cooler) {
         vm.prank(owner);
-        return Cooler(coolerFactory.generate(collateral, debt));
+        return Cooler(coolerFactory.generateCooler(collateral, debt));
     }
 
     function _requestLoan(uint256 amount) internal returns(uint256, uint256) {
@@ -119,7 +119,7 @@ contract CoolerTest is Test {
         vm.startPrank(owner);
         // aprove collateral so that it can be transferred by cooler
         collateral.approve(address(cooler), amount);
-        uint256 reqID = cooler.request(
+        uint256 reqID = cooler.requestLoan(
             amount,
             INTEREST_RATE,
             LOAN_TO_COLLATERAL,
@@ -138,7 +138,7 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred from the cooler
         debt.approve(address(cooler), reqAmount);
-        uint256 loanID = cooler.clear(reqID, directRepay, callbackRepay);
+        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
         vm.stopPrank();
         return loanID;
     }
@@ -160,7 +160,7 @@ contract CoolerTest is Test {
 
     function test_constructor() public {
         vm.prank(owner);
-        cooler = Cooler(coolerFactory.generate(collateral, debt));
+        cooler = Cooler(coolerFactory.generateCooler(collateral, debt));
         assertEq(address(collateral), address(cooler.collateral()));
         assertEq(address(debt), address(cooler.debt()));
         assertEq(address(coolerFactory), address(cooler.factory()));
@@ -181,7 +181,7 @@ contract CoolerTest is Test {
         vm.startPrank(owner);
         // aprove collateral so that it can be transferred by cooler
         collateral.approve(address(cooler), amount);
-        uint256 reqID = cooler.request(
+        uint256 reqID = cooler.requestLoan(
             amount,
             INTEREST_RATE,
             LOAN_TO_COLLATERAL,
@@ -215,7 +215,7 @@ contract CoolerTest is Test {
         uint256 initCoolerCollateral = collateral.balanceOf(address(cooler));
 
         vm.prank(owner);
-        cooler.rescind(reqID);
+        cooler.rescindRequest(reqID);
         (,,,, bool reqActive) = cooler.requests(reqID);
         // check: request storage
         assertEq(false, reqActive);
@@ -234,7 +234,7 @@ contract CoolerTest is Test {
         // only owner can rescind
         vm.prank(others);
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.rescind(reqID);
+        cooler.rescindRequest(reqID);
     }
 
     function testRevert_rescind_onlyActive() public {
@@ -245,10 +245,10 @@ contract CoolerTest is Test {
         (uint256 reqID, ) = _requestLoan(amount);
 
         vm.startPrank(owner);
-        cooler.rescind(reqID);
+        cooler.rescindRequest(reqID);
         // only possible to rescind active requests
         vm.expectRevert(Cooler.Deactivated.selector);
-        cooler.rescind(reqID);
+        cooler.rescindRequest(reqID);
         vm.stopPrank();
     }
 
@@ -269,7 +269,7 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount);
-        uint256 loanID = cooler.clear(reqID, directRepay, callbackRepay);
+        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
         vm.stopPrank();
 
         { // block scoping to prevent "stack too deep" compiler error
@@ -310,14 +310,14 @@ contract CoolerTest is Test {
         (uint256 reqID, ) = _requestLoan(amount);
 
         vm.prank(owner);
-        cooler.rescind(reqID);
+        cooler.rescindRequest(reqID);
 
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount);
         // only possible to rescind active requests
         vm.expectRevert(Cooler.Deactivated.selector);
-        cooler.clear(reqID, directRepay, callbackRepay);
+        cooler.clearRequest(reqID, directRepay, callbackRepay);
         vm.stopPrank();
     }
 
@@ -347,7 +347,7 @@ contract CoolerTest is Test {
         vm.startPrank(owner);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount);
-        cooler.repay(loanID, repayAmount);
+        cooler.repayLoan(loanID, repayAmount);
         vm.stopPrank();
 
         // check: debt and collateral balances
@@ -390,7 +390,7 @@ contract CoolerTest is Test {
         vm.startPrank(owner);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount);
-        cooler.repay(loanID, repayAmount);
+        cooler.repayLoan(loanID, repayAmount);
         vm.stopPrank();
 
         // check: debt and collateral balances
@@ -428,7 +428,7 @@ contract CoolerTest is Test {
         debt.approve(address(cooler), amount);
         // can't repay a defaulted loan
         vm.expectRevert(Cooler.Default.selector);
-        cooler.repay(loanID, repayAmount);
+        cooler.repayLoan(loanID, repayAmount);
         vm.stopPrank();
     }
 
@@ -448,7 +448,7 @@ contract CoolerTest is Test {
         vm.startPrank(owner);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount);
-        cooler.repay(loanID, repayAmount);
+        cooler.repayLoan(loanID, repayAmount);
         vm.stopPrank();
 
         { // block scoping to prevent "stack too deep" compiler error
@@ -483,13 +483,13 @@ contract CoolerTest is Test {
 
         vm.startPrank(lender);
         // turn direct repay off
-        cooler.toggleDirect(loanID);
+        cooler.setDirectRepay(loanID, false);
         (,,,,,, bool repayDirect,) = cooler.loans(loanID);
         // check: loan storage
         assertEq(false, repayDirect);
         
         // turn direct repay on
-        cooler.toggleDirect(loanID);
+        cooler.setDirectRepay(loanID, true);
         (,,,,,, repayDirect,) = cooler.loans(loanID);
         // check: loan storage
         assertEq(true, repayDirect);
@@ -509,7 +509,7 @@ contract CoolerTest is Test {
         vm.prank(others);
         // only lender turn toggle the direct repay
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.toggleDirect(loanID);
+        cooler.setDirectRepay(loanID, true);
     }
 
     // -- Cooler: Defaulted ---------------------------------------------------
@@ -528,7 +528,7 @@ contract CoolerTest is Test {
         vm.warp(block.timestamp + DURATION + 1);
 
         vm.prank(lender);
-        cooler.defaulted(loanID);
+        cooler.claimDefaulted(loanID);
 
         (,  uint256 loanAmount,
             uint256 loanRepaid,
@@ -565,7 +565,7 @@ contract CoolerTest is Test {
         vm.prank(lender);
         // can't default a non-expired loan
         vm.expectRevert(Cooler.NoDefault.selector);
-        cooler.defaulted(loanID);
+        cooler.claimDefaulted(loanID);
     }
 
     // -- Cooler: Delegate ---------------------------------------------------
@@ -578,7 +578,7 @@ contract CoolerTest is Test {
         _requestLoan(amount);
 
         vm.prank(owner);
-        cooler.delegate(others);
+        cooler.delegateVoting(others);
         assertEq(others, collateral.delegatee());
     }
 
@@ -591,7 +591,7 @@ contract CoolerTest is Test {
 
         vm.prank(others);
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.delegate(others);
+        cooler.delegateVoting(others);
     }
 
     // -- Cooler: Approve ---------------------------------------------------
@@ -607,7 +607,7 @@ contract CoolerTest is Test {
         uint256 loanID = _clearLoan(reqID, amount, directRepay, callbackRepay);
 
         vm.prank(lender);
-        cooler.approve(others, loanID);
+        cooler.approveTransfer(others, loanID);
 
         assertEq(others, cooler.approvals(loanID));
     }
@@ -624,7 +624,7 @@ contract CoolerTest is Test {
 
         vm.prank(others);
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.approve(others, loanID);
+        cooler.approveTransfer(others, loanID);
     }
 
     // -- Cooler: Transfer ---------------------------------------------------
@@ -641,10 +641,10 @@ contract CoolerTest is Test {
 
         // the lender approves the transfer
         vm.prank(lender);
-        cooler.approve(others, loanID);
+        cooler.approveTransfer(others, loanID);
         // the transfer is accepted
         vm.prank(others);
-        cooler.transfer(loanID);
+        cooler.transferOwnership(loanID);
 
         (,,,,, address loanLender,,) = cooler.loans(loanID);
         // check: loan storage
@@ -664,7 +664,7 @@ contract CoolerTest is Test {
 
         vm.prank(others);
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.transfer(loanID);
+        cooler.transferOwnership(loanID);
     }
 
     // -- Cooler: New Roll Terms---------------------------------------------------
@@ -750,7 +750,7 @@ contract CoolerTest is Test {
         vm.startPrank(owner);
         // aprove collateral so that it can be transferred by cooler
         collateral.approve(address(cooler), newCollat);
-        cooler.roll(loanID);
+        cooler.rollLoan(loanID);
         vm.stopPrank();
 
         // check: debt balances
@@ -772,7 +772,7 @@ contract CoolerTest is Test {
         vm.prank(owner);
         // not rollable unless lender provides new terms for rolling
         vm.expectRevert(Cooler.NotRollable.selector);
-        cooler.roll(loanID);
+        cooler.rollLoan(loanID);
     }
 
     function testRevert_roll_defaulted() public {
@@ -799,6 +799,6 @@ contract CoolerTest is Test {
         vm.prank(owner);
         // can't roll an expired loan
         vm.expectRevert(Cooler.Default.selector);
-        cooler.roll(loanID);
+        cooler.rollLoan(loanID);
     }
 }
