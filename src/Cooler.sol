@@ -91,7 +91,13 @@ contract Cooler {
         reqID = requests.length;
         factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
         requests.push(
-            Request(amount_, interest_, loanToCollateral_, duration_, true)
+            Request({
+                amount: amount_,
+                interest: interest_,
+                loanToCollateral: loanToCollateral_,
+                duration: duration_,
+                active: true
+            })
         );
         collateral.safeTransferFrom(
             msg.sender,
@@ -112,10 +118,7 @@ contract Cooler {
         if (!req.active) revert Deactivated();
 
         req.active = false;
-        collateral.safeTransfer(
-            owner,
-            collateralFor(req.amount, req.loanToCollateral)
-        );
+        collateral.safeTransfer(owner, collateralFor(req.amount, req.loanToCollateral));
     }
 
     /// @notice Repay a loan to get the collateral back.
@@ -138,7 +141,7 @@ contract Cooler {
 
         address repayTo;
         // Check wether repayment needs to be manually claimed or not.
-        if(loan.repayDirect) {
+        if (loan.repayDirect) {
             repayTo = loan.lender;
         } else {
             repayTo = address(this);
@@ -161,11 +164,7 @@ contract Cooler {
         if (!loan.request.active) revert NotRollable();
 
         uint256 newCollateral = newCollateralFor(loanID_);
-        uint256 newDebt = interestFor(
-            loan.amount,
-            loan.request.interest,
-            loan.request.duration
-        );
+        uint256 newDebt = interestFor(loan.amount, loan.request.interest, loan.request.duration);
 
         loan.amount += newDebt;
         loan.collateral += newCollateral;
@@ -175,11 +174,7 @@ contract Cooler {
         loans[loanID_] = loan;
 
         if (newCollateral > 0) {
-            collateral.safeTransferFrom(
-                msg.sender,
-                address(this),
-                newCollateral
-            );
+            collateral.safeTransferFrom(msg.sender, address(this), newCollateral);
         }
 
         if (loan.callback) ICoolerCallback(loan.lender).onRoll(loanID_);
@@ -220,17 +215,18 @@ contract Cooler {
 
         loanID = loans.length;
         loans.push(
-            Loan(
-                req,
-                req.amount + interest,
-                0,
-                collat,
-                expiration,
-                msg.sender,
-                repayDirect_,
-                isCallback_
-            )
+            Loan({
+                request: req,
+                amount: req.amount + interest,
+                unclaimed: 0,
+                collateral: collat,
+                expiry: expiration,
+                lender: msg.sender,
+                repayDirect: repayDirect_,
+                callback: isCallback_
+            })
         );
+
         debt.safeTransferFrom(msg.sender, owner, req.amount);        
     }
 
@@ -317,10 +313,7 @@ contract Cooler {
     /// @notice Compute collateral needed for loan amount at given loan to collateral ratio.
     /// @param amount_ of collateral tokens.
     /// @param loanToCollateral_ ratio for loan.
-    function collateralFor(
-        uint256 amount_,
-        uint256 loanToCollateral_
-    ) public pure returns (uint256) {
+    function collateralFor(uint256 amount_, uint256 loanToCollateral_) public pure returns (uint256) {
         return (amount_ * DECIMALS) / loanToCollateral_;
     }
 
@@ -344,11 +337,7 @@ contract Cooler {
     /// @param rate_ of interest (annualized)
     /// @param duration_ of loan in seconds.
     /// @return Interest in debt token terms.
-    function interestFor(
-        uint256 amount_,
-        uint256 rate_,
-        uint256 duration_
-    ) public pure returns (uint256) {
+    function interestFor(uint256 amount_, uint256 rate_, uint256 duration_) public pure returns (uint256) {
         uint256 interest = (rate_ * duration_) / 365 days;
         return (amount_ * interest) / DECIMALS;
     }

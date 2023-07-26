@@ -14,12 +14,7 @@ import {CoolerCallback} from "src/CoolerCallback.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 interface IStaking {
-    function unstake(
-        address to,
-        uint256 amount,
-        bool trigger,
-        bool rebasing
-    ) external returns (uint256);
+    function unstake(address to, uint256 amount, bool trigger, bool rebasing) external returns (uint256);
 }
 
 contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
@@ -77,11 +72,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Default framework setup.
-    function configureDependencies()
-        external
-        override
-        returns (Keycode[] memory dependencies)
-    {
+    function configureDependencies() external override returns (Keycode[] memory dependencies) {
         dependencies = new Keycode[](3);
         dependencies[0] = toKeycode("TRSRY");
         dependencies[1] = toKeycode("MINTR");
@@ -93,31 +84,14 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Default framework setup.
-    function requestPermissions()
-        external
-        view
-        override
-        returns (Permissions[] memory requests)
-    {
+    function requestPermissions() external view override returns (Permissions[] memory requests) {
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
         requests = new Permissions[](5);
-        requests[0] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.setDebt.selector
-        );
-        requests[1] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.repayDebt.selector
-        );
-        requests[2] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.incurDebt.selector
-        );
-        requests[3] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.increaseDebtorApproval.selector
-        );
+        requests[0] = Permissions(TRSRY_KEYCODE, TRSRY.setDebt.selector);
+        requests[1] = Permissions(TRSRY_KEYCODE, TRSRY.repayDebt.selector);
+        requests[2] = Permissions(TRSRY_KEYCODE, TRSRY.incurDebt.selector);
+        requests[3] = Permissions(TRSRY_KEYCODE, TRSRY.increaseDebtorApproval.selector);
         requests[4] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
@@ -128,7 +102,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param amount_ of DAI to lend.
     /// @return the ID of the new loan.
     function lendToCooler(Cooler cooler_, uint256 amount_) external returns (uint256) {
-        // Attemp a treasury rebalance.
+        // Attempt a treasury rebalance.
         rebalanceTreasury();
         // Validate that cooler was deployed by the trusted factory.
         if (!factory.created(address(cooler_))) revert OnlyFromFactory();
@@ -141,12 +115,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Create loan request.
         gOHM.approve(address(cooler_), collateral);
-        uint256 reqID = cooler_.requestLoan(
-            amount_,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
+        uint256 reqID = cooler_.requestLoan(amount_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
         // Clear loan request by providing enough DAI.
         sDai.withdraw(amount_, address(this), address(this));
@@ -164,12 +133,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param loanID_ of loan in cooler.
     function rollLoan(Cooler cooler_, uint256 loanID_) external {
         // Provide rollover terms.
-        cooler_.provideNewTermsForRoll(
-            loanID_,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
+        cooler_.provideNewTermsForRoll(loanID_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
         // Collect applicable new collateral from user.
         uint256 newCollateral = cooler_.newCollateralFor(loanID_);
@@ -200,7 +164,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Decrement loan receivables.
         receivables -= amount_;
-        // Attemp a treasury rebalance.
+        // Attempt a treasury rebalance.
         rebalanceTreasury();
     }
 
@@ -219,14 +183,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Unstake and burn the collateral of the defaulted loan.
         gOHM.approve(address(staking), collateral);
-        MINTR.burnOhm(
-            address(this),
-            staking.unstake(address(this), collateral, false, false)
-        );
+        MINTR.burnOhm(address(this), staking.unstake(address(this), collateral, false, false));
 
         // Decrement loan receivables.
         receivables -= amount_;
-        // Attemp a treasury rebalance.
+        // Attempt a treasury rebalance.
         rebalanceTreasury();
     }
 
