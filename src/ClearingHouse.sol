@@ -14,12 +14,7 @@ import {CoolerCallback} from "src/CoolerCallback.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
 interface IStaking {
-    function unstake(
-        address to,
-        uint256 amount,
-        bool trigger,
-        bool rebasing
-    ) external returns (uint256);
+    function unstake(address to, uint256 amount, bool trigger, bool rebasing) external returns (uint256);
 }
 
 contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
@@ -53,10 +48,10 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     uint256 public constant FUND_CADENCE = 7 days;              // One week
     uint256 public constant FUND_AMOUNT = 18_000_000e18;        // 18 million
 
-    uint256 public fundTime;     // Timestamp at which rebalancing can occur
-    uint256 public receivables;  // Outstanding loan receivables
-                                 // Incremented when a loan is made or rolled
-                                 // Decremented when a loan is repaid or collateral is burned
+    uint256 public fundTime;     // Timestamp at which rebalancing can occur.
+    uint256 public receivables;  // Outstanding loan receivables.
+                                 // Incremented when a loan is made or rolled.
+                                 // Decremented when a loan is repaid or collateral is burned.
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -72,14 +67,12 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         sDai = ERC4626(sdai_);
         dai = ERC20(sDai.asset());
         factory = CoolerFactory(coolerFactory_);
+        // Initialize funding schedule.
+        fundTime = block.timestamp;
     }
 
-    /// @notice Default framework setup
-    function configureDependencies()
-        external
-        override
-        returns (Keycode[] memory dependencies)
-    {
+    /// @notice Default framework setup.
+    function configureDependencies() external override returns (Keycode[] memory dependencies) {
         dependencies = new Keycode[](3);
         dependencies[0] = toKeycode("TRSRY");
         dependencies[1] = toKeycode("MINTR");
@@ -90,196 +83,167 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
     }
 
-    /// @notice Default framework setup
-    function requestPermissions()
-        external
-        view
-        override
-        returns (Permissions[] memory requests)
-    {
+    /// @notice Default framework setup.
+    function requestPermissions() external view override returns (Permissions[] memory requests) {
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
         requests = new Permissions[](5);
-        requests[0] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.setDebt.selector
-        );
-        requests[1] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.repayDebt.selector
-        );
-        requests[2] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.incurDebt.selector
-        );
-        requests[3] = Permissions(
-            TRSRY_KEYCODE,
-            TRSRY.increaseDebtorApproval.selector
-        );
+        requests[0] = Permissions(TRSRY_KEYCODE, TRSRY.setDebt.selector);
+        requests[1] = Permissions(TRSRY_KEYCODE, TRSRY.repayDebt.selector);
+        requests[2] = Permissions(TRSRY_KEYCODE, TRSRY.incurDebt.selector);
+        requests[3] = Permissions(TRSRY_KEYCODE, TRSRY.increaseDebtorApproval.selector);
         requests[4] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
     // --- OPERATION -------------------------------------------------
 
-    /// @notice lend to a cooler
-    /// @param cooler to lend to
-    /// @param amount of DAI to lend
-    function lend(Cooler cooler, uint256 amount) external returns (uint256) {
-        // Attemp a treasury rebalance
-        rebalance();
+    /// @notice Lend to a cooler.
+    /// @param cooler_ to lend to.
+    /// @param amount_ of DAI to lend.
+    /// @return the ID of the new loan.
+    function lendToCooler(Cooler cooler_, uint256 amount_) external returns (uint256) {
+        // Attempt a treasury rebalance.
+        rebalanceTreasury();
         // Validate that cooler was deployed by the trusted factory.
-        if (!factory.created(address(cooler))) revert OnlyFromFactory();
+        if (!factory.created(address(cooler_))) revert OnlyFromFactory();
         // Validate cooler collateral and debt tokens.
-        if (cooler.collateral() != gOHM || cooler.debt() != dai) revert BadEscrow();
+        if (cooler_.collateral() != gOHM || cooler_.debt() != dai) revert BadEscrow();
 
-        // Compute and access collateral
-        uint256 collateral = cooler.collateralFor(amount, LOAN_TO_COLLATERAL);
+        // Compute and access collateral.
+        uint256 collateral = cooler_.collateralFor(amount_, LOAN_TO_COLLATERAL);
         gOHM.transferFrom(msg.sender, address(this), collateral);
 
-        // Create loan request
-        gOHM.approve(address(cooler), collateral);
-        uint256 reqID = cooler.request(
-            amount,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
+        // Create loan request.
+        gOHM.approve(address(cooler_), collateral);
+        uint256 reqID = cooler_.requestLoan(amount_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
-        // Clear loan request by providing enough DAI
-        sDai.withdraw(amount, address(this), address(this));
-        dai.approve(address(cooler), amount);
-        uint256 loanID = cooler.clear(reqID, true, true);
+        // Clear loan request by providing enough DAI.
+        sDai.withdraw(amount_, address(this), address(this));
+        dai.approve(address(cooler_), amount_);
+        uint256 loanID = cooler_.clearRequest(reqID, true, true);
 
-        // Increment loan receivables
+        // Increment loan receivables.
         receivables += loanForCollateral(collateral);
         
         return loanID;
     }
 
-    /// @notice provide terms for loan rollover
-    /// @param cooler to provide terms
-    /// @param id of loan in cooler
-    function roll(Cooler cooler, uint256 id) external {
-        // Provide rollover terms
-        cooler.provideNewTermsForRoll(
-            id,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
+    /// @notice Provide terms for loan and execute the rollover.
+    /// @param cooler_ to provide terms.
+    /// @param loanID_ of loan in cooler.
+    function rollLoan(Cooler cooler_, uint256 loanID_) external {
+        // Provide rollover terms.
+        cooler_.provideNewTermsForRoll(loanID_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
-        // Collect applicable new collateral from user
-        uint256 newCollateral = cooler.newCollateralFor(id);
+        // Collect applicable new collateral from user.
+        uint256 newCollateral = cooler_.newCollateralFor(loanID_);
         gOHM.transferFrom(msg.sender, address(this), newCollateral);
 
-        // Roll loan
-        gOHM.approve(address(cooler), newCollateral);
-        cooler.roll(id);
+        // Roll loan.
+        gOHM.approve(address(cooler_), newCollateral);
+        cooler_.rollLoan(loanID_);
 
-        // Increment loan receivables
+        // Increment loan receivables.
         receivables += loanForCollateral(newCollateral);
     }
 
-    /// @notice callback to attept a treasury rebalance
-    /// @param loanID of loan
-    function onRoll(uint256 loanID) external override {
-        // Attemp a treasury rebalance
-        rebalance();
+    /// @notice Callback to attept a treasury rebalance.
+    function onRoll(uint256) external override {
+        rebalanceTreasury();
     }
 
-    /// @notice callback to decrement loan receivables
-    /// @param loanID of loan
-    /// @param amount repaid
-    function onRepay(uint256 loanID, uint256 amount) external override {
+    /// @notice Callback to decrement loan receivables.
+    /// @param loanID_ of loan in cooler.
+    /// @param amount_ repaid.
+    function onRepay(uint256 loanID_, uint256 amount_) external override {
         // Validate caller is cooler
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
         // Validate lender is the clearing house
-        (,,,,, address lender,,) = Cooler(msg.sender).loans(loanID);
+        (,,,,, address lender,,) = Cooler(msg.sender).loans(loanID_);
         if (lender != address(this)) revert BadEscrow();
 
-        // Decrement loan receivables
-        receivables -= amount;
-        // Attemp a treasury rebalance
-        rebalance();
+        // Decrement loan receivables.
+        receivables -= amount_;
+        // Attempt a treasury rebalance.
+        rebalanceTreasury();
+    }
+
+    /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
+    /// @param loanID_ of loan in cooler.
+    function onDefault(uint256 loanID_) external override {
+        // Validate caller is cooler.
+        if (!factory.created(msg.sender)) revert OnlyFromFactory();
+        // Validate lender is the clearinghouse.
+        (, uint256 amount_,, uint256 collateral,, address lender,,) = Cooler(msg.sender).loans(loanID_);
+        if (lender != address(this)) revert BadEscrow();
+
+        // Update outstanding debt owed to the Treasury upon default.
+        uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
+        TRSRY.setDebt(address(this), dai, outstandingDebt - amount_);
+
+        // Unstake and burn the collateral of the defaulted loan.
+        gOHM.approve(address(staking), collateral);
+        MINTR.burnOhm(address(this), staking.unstake(address(this), collateral, false, false));
+
+        // Decrement loan receivables.
+        receivables -= amount_;
+        // Attempt a treasury rebalance.
+        rebalanceTreasury();
     }
 
     // --- FUNDING ---------------------------------------------------
 
     /// @notice Fund loan liquidity from treasury. Returns false if too early to rebalance.
-    ///         Exposure is always capped at FUND_AMOUNT and rebalanced at FUND_CADANCE.
-    function rebalance() public returns (bool) {
+    ///         Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
+    ///         If several rebalances are available (because some were missed), calling this
+    ///         function several times won't impact the funds controlled by the contract.
+    function rebalanceTreasury() public returns (bool) {
         if (fundTime > block.timestamp) return false;
-        fundTime = block.timestamp + FUND_CADENCE;
+        fundTime += FUND_CADENCE;
 
         uint256 balance = dai.balanceOf(address(this)) + sDai.maxWithdraw(address(this));
 
-        // Rebalance funds on hand with treasury's reserves
+        // Rebalance funds on hand with treasury's reserves.
         if (balance < FUND_AMOUNT) {
-            uint256 amount = FUND_AMOUNT - balance;
+            uint256 amount_ = FUND_AMOUNT - balance;
             // Fund the clearinghouse with treasury assets.
-            TRSRY.increaseDebtorApproval(address(this), dai, amount);
-            TRSRY.incurDebt(dai, amount);
-            sweep();
+            TRSRY.increaseDebtorApproval(address(this), dai, amount_);
+            TRSRY.incurDebt(dai, amount_);
+            sweepIntoDSR();
         } else {
-            // Withdraw from sDAI to the treasury
+            // Withdraw from sDAI to the treasury.
             sDai.withdraw(balance - FUND_AMOUNT, address(TRSRY), address(this));
         }
         return true;
     }
 
-    /// @notice Sweep excess DAI into vault
-    function sweep() public {
+    /// @notice Sweep excess DAI into vault.
+    function sweepIntoDSR() public {
         uint256 balance = dai.balanceOf(address(this));
         dai.approve(address(sDai), balance);
         sDai.deposit(balance, address(this));
     }
 
     /// @notice Return funds to treasury.
-    /// @param token to transfer
-    /// @param amount to transfer
-    function defund(ERC20 token, uint256 amount) external onlyRole("cooler_overseer") {
-        if (token == gOHM) revert OnlyBurnable();
+    /// @param token_ to transfer.
+    /// @param amount_ to transfer.
+    function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
+        if (token_ == gOHM) revert OnlyBurnable();
 
         // Return funds to the Treasury by using `repayDebt`
-        try TRSRY.repayDebt(address(this), token, amount) {}
+        try TRSRY.repayDebt(address(this), token_, amount_) {}
         // Use a regular ERC20 transfer as a fallback function
         // for tokens weren't borrowed from Treasury
-        catch { token.transfer(address(TRSRY), amount); }
-    }
-
-    /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
-    /// @param loanID of loan
-    function onDefault(uint256 loanID) external override {
-        // Validate caller is cooler
-        if (!factory.created(msg.sender)) revert OnlyFromFactory();
-        // Validate lender is the clearinghouse
-        (, uint256 amount,, uint256 collateral,, address lender,,) = Cooler(msg.sender).loans(loanID);
-        if (lender != address(this)) revert BadEscrow();
-
-        // Update outstanding debt owed to the Treasury upon default.
-        uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-        TRSRY.setDebt(address(this), dai, outstandingDebt - amount);
-
-        // Unstake and burn the collateral of the defaulted loan.
-        gOHM.approve(address(staking), collateral);
-        MINTR.burnOhm(
-            address(this),
-            staking.unstake(address(this), collateral, false, false)
-        );
-
-        // Decrement loan receivables
-        receivables -= amount;
-        // Attemp a treasury rebalance
-        rebalance();
+        catch { token_.transfer(address(TRSRY), amount_); }
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
     
-    /// @notice view function computing loan for a collateral amount
-    /// @param collateral amount of gOHM collateral
-    function loanForCollateral(uint256 collateral) public pure returns (uint256) {
+    /// @notice view function computing loan for a collateral amount.
+    /// @param collateral_ amount of gOHM.
+    function loanForCollateral(uint256 collateral_) public pure returns (uint256) {
         uint256 interestPercent = (INTEREST_RATE * DURATION) / 365 days;
-        uint256 loan = collateral * LOAN_TO_COLLATERAL / 1e18;
+        uint256 loan = collateral_ * LOAN_TO_COLLATERAL / 1e18;
         uint256 interest = loan * interestPercent / 1e18;
         return loan + interest;
     }

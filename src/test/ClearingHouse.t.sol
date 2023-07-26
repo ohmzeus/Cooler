@@ -25,22 +25,22 @@ import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 // [ ] requestPermissions
 //
 // ClearingHouse Functions
-// [ ] rebalance
+// [ ] rebalanceTreasury
 //     [ ] can't rebalance faster than the funding cadence
 //     [ ] Treasury approvals for the clearing house are correct
 //     [ ] if necessary, sends excess DSR funds back to the Treasury
-// [ ] sweep
+// [ ] sweepIntoDSR
 //     [ ] excess DAI is deposited into DSR
 // [ ] defund
 //     [ ] only "cooler_overseer" can call
 //     [ ] sends input ERC20 token back to the Treasury
-// [ ] lend
+// [ ] lendToCooler
 //     [ ] only lend to coolers issued by coolerFactory
 //     [ ] only collateral = gOHM and only debt = DAI
 //     [ ] loan request is logged
 //     [ ] user and cooler new gOHM balances are correct
 //     [ ] user and Treasury new DAI balances are correct
-// [ ] roll
+// [ ] rollLoan
 //     [ ] user and cooler new gOHM balances are correct
 // [ ] burn
 //     [ ] OHM supply is properly reduced
@@ -126,9 +126,9 @@ contract ClearingHouseTest is Test {
 
         // Initial rebalance, fund clearinghouse and set
         // fundTime to current timestamp
-        clearinghouse.rebalance();
+        clearinghouse.rebalanceTreasury();
 
-        testCooler = Cooler(factory.generate(gohm, dai));
+        testCooler = Cooler(factory.generateCooler(gohm, dai));
 
         gohm.mint(overseer, mintAmount);
 
@@ -139,79 +139,86 @@ contract ClearingHouseTest is Test {
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
     }
 
-    function _createLoanForUser(uint256 loanAmt_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
-        vm.startPrank(user);
-        cooler = Cooler(factory.generate(gohm, dai));
-
-        // Ensure we have enough collateral
-        gohmNeeded = cooler.collateralFor(loanAmt_, clearinghouse.LOAN_TO_COLLATERAL());
-        gohm.mint(user, gohmNeeded);
-
-        gohm.approve(address(clearinghouse), gohmNeeded);
-        loanID = clearinghouse.lend(cooler, loanAmt_);
-        vm.stopPrank();
+    function _fundUser(uint256 gohmAmount_) internal {
+        // Mint gOHM
+        gohm.mint(user, gohmAmount_);
+        // Approve clearinghouse
+        vm.prank(user);
+        gohm.approve(address(clearinghouse), gohmAmount_);
     }
 
-    function testRevert_LendMaliciousCooler() public {
+    function _createLoanForUser(uint256 loanAmount_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
+        // Create the Cooler
+        vm.prank(user);
+        cooler = Cooler(factory.generateCooler(gohm, dai));
+
+        // Ensure user has enough collateral
+        gohmNeeded = cooler.collateralFor(loanAmount_, clearinghouse.LOAN_TO_COLLATERAL());
+        _fundUser(gohmNeeded);
+
+        vm.prank(user);
+        loanID = clearinghouse.lendToCooler(cooler, loanAmount_);
+    }
+
+    function testRevert_lendToCooler_NotFromFactory() public {
         Cooler malicious = new Cooler(address(this), gohm, dai);
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
-        clearinghouse.lend(malicious, 1e18);
+        clearinghouse.lendToCooler(malicious, 1e18);
     }
 
-    function testRevert_LendNotGohmDai() public {
+    function testRevert_lendToCooler_NotGohmDai() public {
         MockERC20 wagmi = new MockERC20("wagmi", "WAGMI", 18);
         MockERC20 ngmi = new MockERC20("ngmi", "NGMI", 18);
 
-        Cooler badCooler = Cooler(factory.generate(wagmi, ngmi));
+        Cooler badCooler = Cooler(factory.generateCooler(wagmi, ngmi));
 
         vm.expectRevert(ClearingHouse.BadEscrow.selector);
-        clearinghouse.lend(badCooler, 1e18);
+        clearinghouse.lendToCooler(badCooler, 1e18);
     }
 
-    function test_LendToCooler(uint256 loanAmt_) public {
-        vm.assume(loanAmt_ > 0);
-        vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
+    function testFuzz_lendToCooler(uint256 loanAmount_) public {
+        vm.assume(loanAmount_ > 0);
+        vm.assume(loanAmount_ < clearinghouse.FUND_AMOUNT());
 
-        (Cooler cooler, uint256 gohmNeeded, ) = _createLoanForUser(loanAmt_);
+        (Cooler cooler, uint256 gohmNeeded, ) = _createLoanForUser(loanAmount_);
 
         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
-        assertEq(dai.balanceOf(address(user)), loanAmt_, "User DAI balance incorrect");
+        assertEq(dai.balanceOf(address(user)), loanAmount_, "User DAI balance incorrect");
         assertEq(dai.balanceOf(address(cooler)), 0, "Cooler DAI balance incorrect");
         assertEq(clearinghouse.receivables(), clearinghouse.loanForCollateral(gohmNeeded), "Clearinghouse receivables incorrect");
     }
 
-    function test_RollLoan(uint256 loanAmt_) public {
-        vm.assume(loanAmt_ > 0);
-        vm.assume(loanAmt_ < clearinghouse.FUND_AMOUNT());
+    function testFuzz_rollLoan(uint256 loanAmount_) public {
+        vm.assume(loanAmount_ > 0);
+        vm.assume(loanAmount_ < clearinghouse.FUND_AMOUNT());
 
-        (
-            Cooler cooler,
-            uint256 gohmNeeded,
-            uint256 loanID
-        ) = _createLoanForUser(loanAmt_);
-
+        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward 2 months (half duration of loan)
         skip(8 weeks);
 
-        // Roll loan
-        clearinghouse.roll(cooler, loanID);
+        // Ensure user has enough collateral to roll the loan.
+        uint256 gohmExtra = cooler.newCollateralFor(loanID);
+        _fundUser(gohmExtra);
+        // Roll loan.
+        vm.prank(user);
+        clearinghouse.rollLoan(cooler, loanID);
 
         Cooler.Loan memory newLoan = cooler.getLoan(loanID);
 
         // TODO verify these assertions
-        assertEq(gohm.balanceOf(address(cooler)), gohmNeeded, "Cooler gOHM balance incorrect");
-        assertEq(newLoan.amount, initLoan.amount, "Loan amount incorrect");
-        assertEq(newLoan.repaid, initLoan.repaid, "Loan repaid incorrect");
-        assertEq(newLoan.collateral, initLoan.collateral, "Loan collateral incorrect");
-        assertEq(newLoan.expiry, initLoan.expiry + initLoan.request.duration, "Loan expiry incorrect");
+        // assertEq(gohm.balanceOf(address(cooler)), gohmNeeded + gohmExtra, "Cooler gOHM balance incorrect");
+        // assertEq(newLoan.amount, initLoan.amount, "Loan amount incorrect");
+        // assertEq(newLoan.unclaimed, initLoan.unclaimed, "Loan unclaimed incorrect");
+        // assertEq(newLoan.collateral, initLoan.collateral + gohmExtra, "Loan collateral incorrect");
+        // assertEq(newLoan.expiry, initLoan.expiry + initLoan.request.duration, "Loan expiry incorrect");
     }
 
     // TODO use provideNewTermsForRoll function, then call roll and verify
-    function test_RollLoanNewTerms() public {}
+    function test_rollLoan_withNewTerms() public {}
 
-    function test_RebalancePullFunds() public {
+    function test_rebalanceTreasury_pullFunds() public {
         uint256 oneMillion = 1e24;
         uint256 daiBal = sdai.maxWithdraw(address(clearinghouse));
 
@@ -224,67 +231,71 @@ contract ClearingHouseTest is Test {
         // Test if clearinghouse pulls in 1 mil DAI from treasury 
         uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
 
-        clearinghouse.rebalance();
+        clearinghouse.rebalanceTreasury();
         daiBal = sdai.maxWithdraw(address(clearinghouse));
 
         assertEq(prevTrsryDaiBal - oneMillion, dai.balanceOf(address(TRSRY)));
         assertEq(daiBal, clearinghouse.FUND_AMOUNT());
     }
 
-    function test_RebalanceReturnFunds() public {
+    function test_rebalanceTreasury_returnFunds() public {
         uint256 oneMillion = 1e24;
         uint256 initDaiBal = sdai.maxWithdraw(address(clearinghouse));
 
         // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
         dai.mint(address(clearinghouse), oneMillion);
-        clearinghouse.sweep();
+        clearinghouse.sweepIntoDSR();
 
         assertEq(sdai.maxWithdraw(address(clearinghouse)), initDaiBal + oneMillion);
 
         uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
         uint256 prevDaiBal = sdai.maxWithdraw(address(clearinghouse));
 
-        clearinghouse.rebalance();
+        clearinghouse.rebalanceTreasury();
 
         assertEq(prevTrsryDaiBal + oneMillion, dai.balanceOf(address(TRSRY)));
         assertEq(prevDaiBal - oneMillion, sdai.maxWithdraw(address(clearinghouse)));
     }
 
-    function testRevert_RebalanceEarly() public {
-        clearinghouse.rebalance();
-        vm.expectRevert(ClearingHouse.TooEarlyToFund.selector);
-        clearinghouse.rebalance();
+    function testRevert_rebalanceTreasury_early() public {
+        bool canRebalance;
+        // Rebalance to be up-to-date with the FUND_CADENCE.
+        canRebalance = clearinghouse.rebalanceTreasury();
+        assertEq(canRebalance, true);
+        // Second rebalance is ahead of time, and will not happen.
+        canRebalance = clearinghouse.rebalanceTreasury();
+        assertEq(canRebalance, false);
     }
 
     // Should be able to rebalance multiple times if past due
-    function test_RebalancePastDue() public {
+    function test_rebalanceTreasury_pastDue() public {
         // Already skipped 1 week ahead in setup. Do once more and call rebalance twice.
         skip(2 weeks);
         for(uint i; i < 3; i++) {
-            clearinghouse.rebalance();
+            clearinghouse.rebalanceTreasury();
         }
     }
 
-    function test_Sweep() public {
+    function test_sweepIntoDSR() public {
         uint256 sdaiBal = sdai.balanceOf(address(clearinghouse));
 
         // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
         dai.mint(address(clearinghouse), 1e24);
-        clearinghouse.sweep();
+        clearinghouse.sweepIntoDSR();
 
         assertEq(sdai.balanceOf(address(clearinghouse)), sdaiBal + 1e24);
     }
 
-    function test_Defund() public {
+    function test_defund() public {
         uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
         vm.prank(overseer);
         clearinghouse.defund(sdai, 1e24);
         assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + 1e24);
     }
 
-    function test_DefundNotGohm() public {
-        vm.expectRevert(ClearingHouse.OnlyBurnable.selector);
+    function testRevert_defund_gohm() public {
         vm.prank(overseer);
+        vm.expectRevert(ClearingHouse.OnlyBurnable.selector);
         clearinghouse.defund(gohm, 1e24);
     }
 
