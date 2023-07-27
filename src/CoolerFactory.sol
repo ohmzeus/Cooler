@@ -53,25 +53,24 @@ contract CoolerFactory {
 
     // --- DEPLOY NEW COOLERS ----------------------------------------
 
-    /// @notice creates a new Escrow contract for collateral and debt tokens
-    function generate(
-        ERC20 collateral,
-        ERC20 debt
-    ) external returns (address cooler) {
+    /// @notice creates a new Escrow contract for collateral and debt tokens.
+    /// @param collateral_ the token given as collateral.
+    /// @param debt_ the token to be lent. Interest is denominated in debt tokens.
+    function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (address cooler) {
         // Return address if cooler exists
-        cooler = coolerFor[msg.sender][collateral][debt];
+        cooler = coolerFor[msg.sender][collateral_][debt_];
 
         // Otherwise generate new cooler
         if (cooler == address(0)) {
             bytes memory coolerData = abi.encodePacked(
-                msg.sender,             // owner
-                address(collateral),    // collateral
-                address(debt),          // debt
-                address(this)           // factory
+                msg.sender,              // owner
+                address(collateral_),    // collateral
+                address(debt_),          // debt
+                address(this)            // factory
             );
             cooler = address(coolerImplementation).clone(coolerData);
-            coolerFor[msg.sender][collateral][debt] = cooler;
-            coolersFor[collateral][debt].push(cooler);
+            coolerFor[msg.sender][collateral_][debt_] = cooler;
+            coolersFor[collateral_][debt_].push(cooler);
             created[cooler] = true;
         }
     }
@@ -85,19 +84,21 @@ contract CoolerFactory {
         Repay
     }
 
-    /// @notice emit an event each time a request is interacted with on a Cooler
-    function newEvent(uint256 id, Events ev, uint256 amount) external {
+    /// @notice emit an event each time a request is interacted with on a Cooler.
+    /// @param id_ loan or request identifier.
+    /// @param ev_ event type.
+    /// @param amount_ to be logged by the event.
+    function newEvent(uint256 id_, Events ev_, uint256 amount_) external {
         require(created[msg.sender], "Only Created");
 
-        if (ev == Events.Clear) emit Clear(msg.sender, id);
-        else if (ev == Events.Repay) emit Repay(msg.sender, id, amount);
-        else if (ev == Events.Rescind) emit Rescind(msg.sender, id);
-        else if (ev == Events.Request)
-            emit Request(
-                msg.sender,
-                address(Cooler(msg.sender).collateral()),
-                address(Cooler(msg.sender).debt()),
-                id
-            );
+        if (ev_ == Events.Clear) {
+            emit Clear(msg.sender, id_);
+        } else if (ev_ == Events.Repay) {
+            emit Repay(msg.sender, id_, amount_);
+        } else if (ev_ == Events.Rescind) {
+            emit Rescind(msg.sender, id_);
+        } else if (ev_ == Events.Request) {
+            emit Request(msg.sender, address(Cooler(msg.sender).collateral()), address(Cooler(msg.sender).debt()), id_);
+        }
     }
 }
