@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
-
 import {Cooler} from "./Cooler.sol";
 
 /// @notice the Cooler Factory creates new Cooler escrow contracts
