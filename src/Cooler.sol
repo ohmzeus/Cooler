@@ -3,14 +3,22 @@ pragma solidity ^0.8.15;
 
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {Clone} from "clones/Clone.sol";
 
 import {IDelegate} from "interfaces/IDelegate.sol";
 import {CoolerFactory} from "src/CoolerFactory.sol";
 import {CoolerCallback} from "src/CoolerCallback.sol";
 
+interface IClearinghouse {
+    function repay(uint256 loanID, uint256 amount) external;
+}
+
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
 ///         loans for a user-defined debt-collateral pair.
-contract Cooler {
+///
+/// @dev This contract uses Clones (https://github.com/wighawag/clones-with-immutable-args)
+///      to save gas on deployment
+contract Cooler is Clone {
     using SafeTransferLib for ERC20;
 
     // --- ERRORS ----------------------------------------------------
@@ -48,31 +56,36 @@ contract Cooler {
         bool callback;          // If this is true, the lender must inherit CoolerCallback.
     }
 
-    // Facilitates transfer of lender ownership to new addresses
-    mapping(uint256 => address) public approvals;
-
     // --- IMMUTABLES ------------------------------------------------
-
-    // This address owns the collateral in escrow.
-    address private immutable owner;
-    // This token is borrowed against.
-    ERC20 public immutable collateral;
-    // This token is lent.
-    ERC20 public immutable debt;
-    // This contract created the Cooler
-    CoolerFactory public immutable factory;
 
     // This makes the code look prettier.
     uint256 private constant DECIMALS = 1e18;
 
-    // --- INITIALIZATION --------------------------------------------
-
-    constructor(address owner_, ERC20 collateral_, ERC20 debt_) {
-        owner = owner_;
-        collateral = collateral_;
-        debt = debt_;
-        factory = CoolerFactory(msg.sender);
+    /// @notice This address owns the collateral in escrow.
+    function owner() public pure returns (address _owner) {
+        return _getArgAddress(0x0);
     }
+
+    /// @notice This token is borrowed against.
+    function collateral() public pure returns (ERC20 _collateral) {
+        return ERC20(_getArgAddress(0x14));
+    }
+
+    /// @notice This token is lent.
+    function debt() public pure returns (ERC20 _debt) {
+        return ERC20(_getArgAddress(0x28));
+    }
+    
+    /// @notice This contract created the Cooler
+    function factory() public pure returns (CoolerFactory _factory) {
+        return CoolerFactory(_getArgAddress(0x3c));
+    }
+
+    // --- STATE VARIABLES -------------------------------------------
+
+    // Facilitates transfer of lender ownership to new addresses
+    mapping(uint256 => address) public approvals;
+
 
     // --- BORROWER --------------------------------------------------
 
@@ -89,7 +102,7 @@ contract Cooler {
         uint256 duration_
     ) external returns (uint256 reqID) {
         reqID = requests.length;
-        factory.newEvent(reqID, CoolerFactory.Events.Request, 0);
+        factory().newEvent(reqID, CoolerFactory.Events.Request, 0);
         requests.push(
             Request({
                 amount: amount_,
@@ -99,7 +112,7 @@ contract Cooler {
                 active: true
             })
         );
-        collateral.safeTransferFrom(
+        collateral().safeTransferFrom(
             msg.sender,
             address(this),
             collateralFor(amount_, loanToCollateral_)
@@ -109,16 +122,16 @@ contract Cooler {
     /// @notice Cancel a loan request and get the collateral back.
     /// @param reqID_ index of request in requests[]
     function rescindRequest(uint256 reqID_) external {
-        if (msg.sender != owner) revert OnlyApproved();
+        if (msg.sender != owner()) revert OnlyApproved();
 
-        factory.newEvent(reqID_, CoolerFactory.Events.Rescind, 0);
+        factory().newEvent(reqID_, CoolerFactory.Events.Rescind, 0);
 
         Request storage req = requests[reqID_];
 
         if (!req.active) revert Deactivated();
 
         req.active = false;
-        collateral.safeTransfer(owner, collateralFor(req.amount, req.loanToCollateral));
+        collateral().safeTransfer(owner(), collateralFor(req.amount, req.loanToCollateral));
     }
 
     /// @notice Repay a loan to get the collateral back.
@@ -134,7 +147,7 @@ contract Cooler {
         uint256 decollateralized = (loan.collateral * repaid_) / loan.amount;
         if (decollateralized == 0) revert ZeroCollateralReturned();
 
-        factory.newEvent(loanID_, CoolerFactory.Events.Repay, repaid_);
+        factory().newEvent(loanID_, CoolerFactory.Events.Repay, repaid_);
 
         loan.amount -= repaid_;
         loan.collateral -= decollateralized;
@@ -148,8 +161,8 @@ contract Cooler {
             loan.unclaimed += repaid_;
         }
 
-        debt.safeTransferFrom(msg.sender, repayTo, repaid_);
-        collateral.safeTransfer(owner, decollateralized);
+        debt().safeTransferFrom(msg.sender, repayTo, repaid_);
+        collateral().safeTransfer(owner(), decollateralized);
 
         if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, repaid_);
         return decollateralized;
@@ -175,7 +188,7 @@ contract Cooler {
         loans[loanID_] = loan;
 
         if (newCollateral > 0) {
-            collateral.safeTransferFrom(msg.sender, address(this), newCollateral);
+            collateral().safeTransferFrom(msg.sender, address(this), newCollateral);
         }
 
         if (loan.callback) CoolerCallback(loan.lender).onRoll(loanID_);
@@ -184,8 +197,8 @@ contract Cooler {
     /// @notice Delegate voting power on collateral.
     /// @param to_ address to delegate.
     function delegateVoting(address to_) external {
-        if (msg.sender != owner) revert OnlyApproved();
-        IDelegate(address(collateral)).delegate(to_);
+        if (msg.sender != owner()) revert OnlyApproved();
+        IDelegate(address(collateral())).delegate(to_);
     }
 
     // --- LENDER ----------------------------------------------------
@@ -207,7 +220,7 @@ contract Cooler {
         if (!req.active) revert Deactivated();
 
         // Clear the loan request
-        factory.newEvent(reqID_, CoolerFactory.Events.Clear, 0);
+        factory().newEvent(reqID_, CoolerFactory.Events.Clear, 0);
         req.active = false;
 
         uint256 interest = interestFor(req.amount, req.interest, req.duration);
@@ -227,8 +240,7 @@ contract Cooler {
                 callback: isCallback_
             })
         );
-
-        debt.safeTransferFrom(msg.sender, owner, req.amount);        
+        debt().safeTransferFrom(msg.sender, owner(), req.amount);
     }
 
     /// @notice Provide new terms for loan to be rolled over.
@@ -262,7 +274,7 @@ contract Cooler {
         Loan storage loan = loans[loanID_];
         uint256 claim = loan.unclaimed;
         delete loan.unclaimed;
-        debt.safeTransfer(loan.lender, claim);
+        debt().safeTransfer(loan.lender, claim);
     }
 
     /// @notice Claim collateral upon loan default.
@@ -274,7 +286,7 @@ contract Cooler {
 
         if (block.timestamp <= loan.expiry) revert NoDefault();
 
-        collateral.safeTransfer(loan.lender, loan.collateral);
+        collateral().safeTransfer(loan.lender, loan.collateral);
 
         if (loan.callback) CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
         return loan.collateral;

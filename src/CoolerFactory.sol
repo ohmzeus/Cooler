@@ -2,12 +2,19 @@
 pragma solidity ^0.8.0;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
+import {ClonesWithImmutableArgs} from "clones/ClonesWithImmutableArgs.sol";
+
 import {Cooler} from "./Cooler.sol";
 
 /// @notice the Cooler Factory creates new Cooler escrow contracts
+///
+/// @dev This contract uses Clones (https://github.com/wighawag/clones-with-immutable-args)
+///      to save gas on deployment
 contract CoolerFactory {
+    using ClonesWithImmutableArgs for address;
 
     // --- EVENTS ----------------------------------------------------
+
 
     // A global event when a loan request is created
     event Request(
@@ -23,6 +30,11 @@ contract CoolerFactory {
     // A global event when a loan is repaid
     event Repay(address cooler, uint256 loanID, uint256 amount);
 
+    // -- STATE VARIABLES --------------------------------------------
+
+    // Cooler reference implementation (deployed on creation to clone from)
+    Cooler public immutable coolerImplementation;
+
     // Mapping to validate deployed coolers
     mapping(address => bool) public created;
 
@@ -35,6 +47,12 @@ contract CoolerFactory {
 
     // --- INITIALIZATION --------------------------------------------
 
+    constructor() {
+        coolerImplementation = new Cooler();
+    }
+
+    // --- DEPLOY NEW COOLERS ----------------------------------------
+
     /// @notice creates a new Escrow contract for collateral and debt tokens.
     /// @param collateral_ the token given as collateral.
     /// @param debt_ the token to be lent. Interest is denominated in debt tokens.
@@ -44,7 +62,13 @@ contract CoolerFactory {
 
         // Otherwise generate new cooler
         if (cooler == address(0)) {
-            cooler = address(new Cooler(msg.sender, collateral_, debt_));
+            bytes memory coolerData = abi.encodePacked(
+                msg.sender,              // owner
+                address(collateral_),    // collateral
+                address(debt_),          // debt
+                address(this)            // factory
+            );
+            cooler = address(coolerImplementation).clone(coolerData);
             coolerFor[msg.sender][collateral_][debt_] = cooler;
             coolersFor[collateral_][debt_].push(cooler);
             created[cooler] = true;
