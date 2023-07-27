@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.0;
 
-import {ERC20} from "solmate/tokens/ERC20.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 
 interface IDelegate {
@@ -29,27 +28,5 @@ contract MockGohm is MockERC20, IDelegate {
 
     function balanceTo(uint256 amount_) public view returns (uint256) {
         return (amount_ * 10 ** decimals) / index;
-    }
-}
-
-contract MockOhm is ERC20 {
-    constructor(
-        string memory _name,
-        string memory _symbol,
-        uint8 _decimals
-    ) ERC20(_name, _symbol, _decimals) {}
-
-    function mint(address to, uint256 value) public virtual {
-        _mint(to, value);
-    }
-
-    function burnFrom(address from, uint256 value) public virtual {
-        _burn(from, value);
-    }
-}
-
-contract MockStaking {
-    function unstake(address, uint256 amount, bool, bool) external pure returns (uint256) {
-        return amount;
     }
 }
