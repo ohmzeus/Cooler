@@ -206,10 +206,12 @@ contract ClearingHouseTest is Test {
     // --- LEND TO COOLER ------------------------------------------------
 
     function testRevert_lendToCooler_NotFromFactory() public {
+        CoolerFactory maliciousFactory = new CoolerFactory();
+        Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
         // Coolers not created by the CoolerFactory could be malicious.
-        Cooler malicious = new Cooler(address(this), gohm, dai);
+        vm.prank(address(maliciousCooler));
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
-        clearinghouse.lendToCooler(malicious, 1e18);
+        clearinghouse.lendToCooler(maliciousCooler, 1e18);
     }
 
     function testRevert_lendToCooler_NotGohmDai() public {
@@ -431,9 +433,10 @@ contract ClearingHouseTest is Test {
     }
 
     function testRevert_onRepay_notFromFactory() public {
+        CoolerFactory maliciousFactory = new CoolerFactory();
+        Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
         // Coolers not created by the CoolerFactory could be malicious.
-        Cooler malicious = new Cooler(address(this), gohm, dai);
-        vm.prank(address(malicious));
+        vm.prank(address(maliciousCooler));
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
         clearinghouse.onRepay(0, 1e18);
     }
@@ -467,9 +470,10 @@ contract ClearingHouseTest is Test {
     }
 
     function testRevert_onDefault_notFromFactory() public {
+        CoolerFactory maliciousFactory = new CoolerFactory();
+        Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
         // Coolers not created by the CoolerFactory could be malicious.
-        Cooler malicious = new Cooler(address(this), gohm, dai);
-        vm.prank(address(malicious));
+        vm.prank(address(maliciousCooler));
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
         clearinghouse.onDefault(0, 0, 0);
     }

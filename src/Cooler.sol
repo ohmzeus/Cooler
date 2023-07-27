@@ -18,7 +18,7 @@ interface IClearinghouse {
 ///
 /// @dev This contract uses Clones (https://github.com/wighawag/clones-with-immutable-args)
 ///      to save gas on deployment
-contract Cooler {
+contract Cooler is Clone {
     using SafeTransferLib for ERC20;
 
     // --- ERRORS ----------------------------------------------------
@@ -197,7 +197,7 @@ contract Cooler {
     /// @notice Delegate voting power on collateral.
     /// @param to_ address to delegate.
     function delegateVoting(address to_) external {
-        if (msg.sender != owner) revert OnlyApproved();
+        if (msg.sender != owner()) revert OnlyApproved();
         IDelegate(address(collateral())).delegate(to_);
     }
 
@@ -274,7 +274,7 @@ contract Cooler {
         Loan storage loan = loans[loanID_];
         uint256 claim = loan.unclaimed;
         delete loan.unclaimed;
-        debt.safeTransfer(loan.lender, claim);
+        debt().safeTransfer(loan.lender, claim);
     }
 
     /// @notice Claim collateral upon loan default.
