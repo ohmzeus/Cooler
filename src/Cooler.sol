@@ -9,7 +9,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 import {CoolerCallback} from "src/CoolerCallback.sol";
 
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
-///          loans for a specific user and debt-collateral pair.
+///         loans for a user-defined debt-collateral pair.
 contract Cooler {
     using SafeTransferLib for ERC20;
 

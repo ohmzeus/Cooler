@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {console2 as console} from "forge-std/console2.sol";
 import {UserFactory} from "test/lib/UserFactory.sol";
 
-import {MockOhm} from "test/mocks/OlympusMocks.sol";
+import {MockOhm} from "test/mocks/MockOhm.sol";
+import {MockStaking} from "test/mocks/MockStaking.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
 import {MockERC4626} from "solmate/test/utils/mocks/MockERC4626.sol";
 
@@ -54,13 +55,8 @@ import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
 //     [X] receivables are updated.
 //     [X] OHM supply is properly burnt.
 
-contract MockStaking {
-    function unstake(address, uint256 amount, bool, bool) external pure returns (uint256) {
-        return amount;
-    }
-}
 
-/// @dev Although we are have sDAI in the treasury, the sDAI will be equal to
+/// @dev Although there is sDAI in the treasury, the sDAI will be equal to
 ///      DAI values everytime we convert between them. This is because no external
 ///      DAI is being added to the sDAI vault, so the exchange rate is 1:1. This
 ///      does not cause any issues with our testing.
@@ -415,7 +411,7 @@ contract ClearingHouseTest is Test {
         // Loan amount must exceed 0.0001 gOHM, so that repaying the interest decollaterizes de loan.
         loanAmount_ = bound(loanAmount_, 1e14, clearinghouse.FUND_AMOUNT());
 
-        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
+        (Cooler cooler,, uint256 loanID) = _createLoanForUser(loanAmount_);
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward to half duration of the loan
@@ -427,7 +423,7 @@ contract ClearingHouseTest is Test {
         // Repay the interest of the loan (interest = owed debt - borrowed amount)
         uint256 repay = initLoan.amount - initLoan.request.amount;
         dai.approve(address(cooler), repay);
-        uint256 decollateralized = cooler.repayLoan(loanID, repay);
+        cooler.repayLoan(loanID, repay);
 
         // Check: clearinghouse storage
         assertEq(clearinghouse.receivables(), initReceivables - repay);
@@ -467,8 +463,7 @@ contract ClearingHouseTest is Test {
         // Check: OHM supply = 0 (only minted before burning)
         assertEq(ohm.totalSupply(), 0);
         // Check: clearinghouse storage
-        assertEq(clearinghouse.receivables(), cooler.getLoan(loanID).amount);
-        assertApproxEqAbs(clearinghouse.receivables(), cooler.getLoan(loanID).amount, 1e4);
+        assertEq(clearinghouse.receivables(), initReceivables > initLoan.amount ? initReceivables - initLoan.amount : 0);
     }
 
     function testRevert_onDefault_notFromFactory() public {

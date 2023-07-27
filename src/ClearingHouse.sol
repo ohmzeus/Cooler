@@ -8,14 +8,10 @@ import {TRSRYv1} from "olympus-v3/modules/TRSRY/TRSRY.v1.sol";
 import {MINTRv1} from "olympus-v3/modules/MINTR/MINTR.v1.sol";
 import "olympus-v3/Kernel.sol";
 
+import {IStaking} from "interfaces/IStaking.sol";
+
 import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
 import {CoolerCallback} from "src/CoolerCallback.sol";
-
-import {console2 as console} from "forge-std/console2.sol";
-
-interface IStaking {
-    function unstake(address to, uint256 amount, bool trigger, bool rebasing) external returns (uint256);
-}
 
 contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
@@ -153,9 +149,9 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Callback to decrement loan receivables.
-    /// @param loanID_ of loan in cooler.
+    /// *unused loadID_ of the load.
     /// @param amount_ repaid.
-    function onRepay(uint256 loanID_, uint256 amount_) external override {
+    function onRepay(uint256, uint256 amount_) external override {
         // Validate caller is cooler
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
 
@@ -166,8 +162,10 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
-    /// @param loanID_ of loan in cooler.
-    function onDefault(uint256 loanID_, uint256 amount_, uint256 collateral_) external override {
+    /// *unused loadID_ of the load.
+    /// @param amount_ defaulted.
+    /// @param collateral_ that can be taken.
+    function onDefault(uint256, uint256 amount_, uint256 collateral_) external override {
         // Validate caller is cooler.
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
 
