@@ -209,10 +209,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
             TRSRY.increaseDebtorApproval(address(this), sDai, amount);
             TRSRY.incurDebt(sDai, amount);
         } else if (balance > FUND_AMOUNT) {
-            uint256 fundAmount = balance - FUND_AMOUNT;
+            uint256 defundAmount = balance - FUND_AMOUNT;
             // Since TRSRY denominates in sDAI, a conversion must be done beforehand.
-            uint256 amount = sDai.previewDeposit(fundAmount);
+            uint256 amount = sDai.previewWithdraw(defundAmount);
             // Send sDAI back to the treasury
+            sDai.approve(address(TRSRY), amount);
             TRSRY.repayDebt(address(this), sDai, amount);
         }
         return true;
@@ -233,11 +234,15 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
 
-        // Return funds to the Treasury by using `repayDebt`
-        try TRSRY.repayDebt(address(this), token_, amount_) {}
-        // Use a regular ERC20 transfer as a fallback function
-        // for tokens weren't borrowed from Treasury
-        catch { token_.transfer(address(TRSRY), amount_); }
+        // If there is an outstanding debt, repay it.
+        if (TRSRY.reserveDebt(token_, address(this)) != 0) {
+            token_.approve(address(TRSRY), amount_);
+            TRSRY.repayDebt(address(this), token_, amount_);
+        }
+        // Otherwise, transfer just the tokens.
+        else {
+            token_.transfer(address(TRSRY), amount_);
+        }
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
