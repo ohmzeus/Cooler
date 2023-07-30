@@ -45,6 +45,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] only possible before expiry
 //     [X] only possible for active loans
 //     [X] loan is updated
+//     [X] request is deactivated
 //     [X] user and cooler new collateral balances are correct
 // [X] provideNewTermsForRoll
 //     [X] only lender can set new terms
@@ -904,6 +905,9 @@ contract CoolerTest is Test {
         assertEq(collateral.balanceOf(owner), initOwnerCollat - newCollat);
         assertEq(collateral.balanceOf(address(cooler)), initCoolerCollat + newCollat);
         }
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
+        // check: loan storage
+        assertEq(loan.request.active, false);
     }
 
     function testRevertFuzz_roll_onlyActive(uint256 amount_) public {
