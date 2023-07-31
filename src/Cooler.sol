@@ -93,7 +93,7 @@ contract Cooler is Clone {
     ///         Collateral is taken at time of request.
     /// @param amount_ of debt tokens to borrow.
     /// @param interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
-    /// @param loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt.decimals().
+    /// @param loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
     /// @param duration_ of loan tenure in seconds.
     function requestLoan(
         uint256 amount_,
@@ -247,7 +247,7 @@ contract Cooler is Clone {
     /// @notice Provide new terms for loan to be rolled over.
     /// @param loanID_ index of loan in loans[]
     /// @param interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
-    /// @param loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt.decimals().
+    /// @param loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
     /// @param duration_ of loan tenure in seconds.
     function provideNewTermsForRoll(
         uint256 loanID_,
