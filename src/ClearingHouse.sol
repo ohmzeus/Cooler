@@ -25,7 +25,6 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
-    CoolerFactory public immutable factory;
     ERC20 public immutable dai;
     ERC4626 public immutable sDai;
     ERC20 public immutable gOHM;
@@ -57,12 +56,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         address sdai_,
         address coolerFactory_,
         address kernel_
-    ) Policy(Kernel(kernel_)) {
+    ) Policy(Kernel(kernel_)) CoolerCallback(coolerFactory_) {
         gOHM = ERC20(gohm_);
         staking = IStaking(staking_);
         sDai = ERC4626(sdai_);
         dai = ERC20(sDai.asset());
-        factory = CoolerFactory(coolerFactory_);
         // Initialize funding schedule.
         fundTime = block.timestamp;
     }
@@ -146,7 +144,8 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Callback to attept a treasury rebalance.
     /// *unused loadID_ of the load.
     function onRoll(uint256) external override {
-        rebalance();
+        // Convert received DAI into sDAI.        
+        sweepIntoDSR();
     }
 
     /// @notice Callback to decrement loan receivables.
@@ -158,15 +157,15 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
         // Decrement loan receivables.
         receivables -= amount_;
-        // Attempt a clearinghouse <> treasury rebalance.
-        rebalance();
+        // Convert received DAI into sDAI.        
+        sweepIntoDSR();
     }
 
-    /// @notice Callback to account for defaults. Adjusts Treasury debt and OHM supply.
+    /// @notice Callback to account for defaults. Adjusts Treasury debt accordingly.
     /// *unused loadID_ of the load.
     /// @param amount_ defaulted (in DAI).
-    /// @param collateral_ that can be taken (in gOHM).
-    function onDefault(uint256, uint256 amount_, uint256 collateral_) external override {
+    /// *unused collateral_ that can be taken (in gOHM).
+    function onDefault(uint256, uint256 amount_, uint256) external override {
         // Validate caller is cooler.
         if (!factory.created(msg.sender)) revert OnlyFromFactory();
 
@@ -174,15 +173,16 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         uint256 outstandingDebt = TRSRY.reserveDebt(sDai, address(this));
         // Since TRSRY denominates in sDAI, DAI must be converted beforehand.
         TRSRY.setDebt(address(this), sDai, outstandingDebt - sDai.previewDeposit(amount_));
-
-        // Unstake and burn the collateral of the defaulted loan.
-        gOHM.approve(address(staking), collateral_);
-        MINTR.burnOhm(address(this), staking.unstake(address(this), collateral_, false, false));
-
         // Decrement loan receivables.
         receivables = (receivables > amount_) ? receivables - amount_ : 0;
-        // Attempt a clearinghouse <> treasury rebalance.
-        rebalance();
+    }
+
+    /// @notice Unstake and burn the excess gOHM earned because of defaults.
+    function burn() external {
+        uint256 defaulted = gOHM.balanceOf(address(this));
+        // Unstake and burn the collateral of the defaulted loans.
+        gOHM.approve(address(staking), defaulted);
+        MINTR.burnOhm(address(this), staking.unstake(address(this), defaulted, false, false));
     }
 
     // --- FUNDING ---------------------------------------------------

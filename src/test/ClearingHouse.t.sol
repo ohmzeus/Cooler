@@ -472,14 +472,10 @@ contract ClearingHouseTest is Test {
         // Cache clearinghouse receivables
         uint256 initReceivables = clearinghouse.receivables();
         
-        // Simulate unstaking outcome
-        ohm.mint(address(clearinghouse), gohmNeeded);
         // Claim defaulted loan
         vm.prank(overseer);
         cooler.claimDefaulted(loanID);
 
-        // Check: OHM supply = 0 (only minted before burning)
-        assertEq(ohm.totalSupply(), 0);
         // Check: clearinghouse storage
         assertEq(clearinghouse.receivables(), initReceivables > initLoan.amount ? initReceivables - initLoan.amount : 0);
     }
@@ -491,5 +487,33 @@ contract ClearingHouseTest is Test {
         vm.prank(address(maliciousCooler));
         vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
         clearinghouse.onDefault(0, 0, 0);
+    }
+
+    // --- BURN (AFTER DEFAULT) ------------------------------------------
+
+    function test_burn(uint256 loanAmount_) public {
+        // Loan amount cannot exceed Clearinghouse funding
+        // Loan amount must exceed 0.0001 gOHM, so that repaying the interest decollaterizes de loan.
+        loanAmount_ = bound(loanAmount_, 1e14, clearinghouse.FUND_AMOUNT());
+
+        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
+        Cooler.Loan memory initLoan = cooler.getLoan(loanID);
+
+        // Move forward after the loan has ended
+        _skip(clearinghouse.DURATION() + 1);
+
+        // Claim defaulted loan
+        vm.prank(overseer);
+        cooler.claimDefaulted(loanID);
+        
+        // After default the clearing house keeps the collateral 
+        assertEq(gohm.balanceOf(address(clearinghouse)), gohmNeeded);
+        // Simulate unstaking outcome
+        ohm.mint(address(clearinghouse), gohmNeeded);
+
+        clearinghouse.burn();
+
+        // Check: OHM supply = 0 (only minted before burning)
+        assertEq(ohm.totalSupply(), 0);
     }
 }
