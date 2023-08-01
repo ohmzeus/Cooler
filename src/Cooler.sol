@@ -59,7 +59,7 @@ contract Cooler is Clone {
     // --- IMMUTABLES ------------------------------------------------
 
     // This makes the code look prettier.
-    uint256 private constant DECIMALS = 1e18;
+    uint256 private constant DECIMALS_INTEREST = 1e18;
 
     /// @notice This address owns the collateral in escrow.
     function owner() public pure returns (address _owner) {
@@ -92,8 +92,8 @@ contract Cooler is Clone {
     /// @notice Request a loan with given parameters.
     ///         Collateral is taken at time of request.
     /// @param amount_ of debt tokens to borrow.
-    /// @param interest_ to pay (annualized % of 'amount_')
-    /// @param loanToCollateral_ debt tokens per collateral token pledged.
+    /// @param interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
+    /// @param loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
     /// @param duration_ of loan tenure in seconds.
     function requestLoan(
         uint256 amount_,
@@ -153,7 +153,7 @@ contract Cooler is Clone {
         loan.collateral -= decollateralized;
 
         address repayTo;
-        // Check wether repayment needs to be manually claimed or not.
+        // Check whether repayment needs to be manually claimed or not.
         if (loan.repayDirect) {
             repayTo = loan.lender;
         } else {
@@ -183,6 +183,7 @@ contract Cooler is Clone {
         loan.amount += newDebt;
         loan.collateral += newCollateral;
         loan.expiry += loan.request.duration;
+        loan.request.active = false;
 
         // Save updated loan info back to loans array
         loans[loanID_] = loan;
@@ -245,8 +246,8 @@ contract Cooler is Clone {
 
     /// @notice Provide new terms for loan to be rolled over.
     /// @param loanID_ index of loan in loans[]
-    /// @param interest_ to pay (annualized % of 'amount')
-    /// @param loanToCollateral_ debt tokens per collateral token pledged.
+    /// @param interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
+    /// @param loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
     /// @param duration_ of loan tenure in seconds.
     function provideNewTermsForRoll(
         uint256 loanID_,
@@ -326,8 +327,8 @@ contract Cooler is Clone {
     /// @notice Compute collateral needed for loan amount at given loan to collateral ratio.
     /// @param amount_ of collateral tokens.
     /// @param loanToCollateral_ ratio for loan.
-    function collateralFor(uint256 amount_, uint256 loanToCollateral_) public pure returns (uint256) {
-        return (amount_ * DECIMALS) / loanToCollateral_;
+    function collateralFor(uint256 amount_, uint256 loanToCollateral_) public view returns (uint256) {
+        return (amount_ * (10 ** collateral().decimals())) / loanToCollateral_;
     }
 
     /// @notice compute collateral needed to roll loan
@@ -352,7 +353,7 @@ contract Cooler is Clone {
     /// @return Interest in debt token terms.
     function interestFor(uint256 amount_, uint256 rate_, uint256 duration_) public pure returns (uint256) {
         uint256 interest = (rate_ * duration_) / 365 days;
-        return (amount_ * interest) / DECIMALS;
+        return (amount_ * interest) / DECIMALS_INTEREST;
     }
 
     /// @notice Check if given loan is in default.
