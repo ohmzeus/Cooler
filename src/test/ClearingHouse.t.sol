@@ -76,13 +76,15 @@ contract ClearingHouseTest is Test {
     Cooler internal testCooler;
 
     address internal user;
+    address internal others;
     address internal overseer;
     uint256 internal initialSDai;
 
     function setUp() public {
-        address[] memory users = (new UserFactory()).create(2);
+        address[] memory users = (new UserFactory()).create(3);
         user = users[0];
-        overseer = users[1];
+        others = users[1];
+        overseer = users[2];
 
         MockStaking staking = new MockStaking();
         factory = new CoolerFactory();
@@ -118,11 +120,13 @@ contract ClearingHouseTest is Test {
         rolesAdmin.grantRole("cooler_overseer", overseer);
 
         // Setup clearinghouse initial conditions
-        uint mintAmount = 200_000_000e18; // Init treasury with 200 million
-
+        uint mintAmount = 200_000_000e18;  // Init treasury with 200 million
         dai.mint(address(TRSRY), mintAmount);
-        //dai.approve(address(sdai), dai.balanceOf(address(this)));
-        //sdai.deposit(dai.balanceOf(address(this)), address(TRSRY));
+        // Deposit all reserves into the DSR
+        vm.startPrank(address(TRSRY));
+        dai.approve(address(sdai), mintAmount);
+        sdai.deposit(mintAmount, address(TRSRY));
+        vm.stopPrank();
 
         // Initial rebalance to fund the clearinghouse
         clearinghouse.rebalance();
@@ -136,6 +140,13 @@ contract ClearingHouseTest is Test {
 
         // Initial funding of clearinghouse is equal to FUND_AMOUNT
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
+        
+        // Fund others so that TRSRY is not the only with sDAI shares
+        dai.mint(others, mintAmount * 33);
+        vm.startPrank(others);
+        dai.approve(address(sdai), mintAmount * 33);
+        sdai.deposit(mintAmount * 33, others);
+        vm.stopPrank();
     }
 
     // --- HELPER FUNCTIONS ----------------------------------------------
@@ -316,48 +327,52 @@ contract ClearingHouseTest is Test {
         assertEq(newLoan.expiry, initLoan.expiry + initLoan.request.duration);
     }
 
-    // TODO use provideNewTermsForRoll function, then call roll and verify
-    function test_rollLoan_withNewTerms() public {}
-
     // --- REBALANCE TREASURY --------------------------------------------
 
     function test_rebalance_pullFunds() public {
         uint256 oneMillion = 1e24;
-        uint256 daiBal = sdai.maxWithdraw(address(clearinghouse));
+        uint256 sdaiOneMillion = sdai.previewWithdraw(1e24);
+        uint256 daiInitCH = sdai.maxWithdraw(address(clearinghouse));
+        uint256 sdaiInitCH = sdai.balanceOf(address(clearinghouse));
 
         // Burn 1 mil from clearinghouse to simulate assets being lent
         vm.prank(address(clearinghouse));
         sdai.withdraw(oneMillion, address(0x0), address(clearinghouse));
 
-        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiBal - oneMillion);
-
-        // Test if clearinghouse pulls in 1 mil DAI from treasury 
-        uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH - oneMillion, "DAI balance CH");
+        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH - sdaiOneMillion, "sDAI balance CH");
+        // Test if clearinghouse pulls in 1 mil DAI from treasury
+        uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
+        uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
 
         clearinghouse.rebalance();
-        daiBal = sdai.maxWithdraw(address(clearinghouse));
 
-        assertEq(prevTrsryDaiBal - oneMillion, dai.balanceOf(address(TRSRY)));
-        assertEq(daiBal, clearinghouse.FUND_AMOUNT());
+        assertEq(daiInitTRSRY - oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
+        assertEq(sdaiInitTRSRY - sdaiOneMillion, sdai.balanceOf(address(TRSRY)), "sDAI balance TRSRY");
+        assertEq(clearinghouse.FUND_AMOUNT(), sdai.maxWithdraw(address(clearinghouse)), "FUND_AMOUNT");
     }
 
     function test_rebalance_returnFunds() public {
         uint256 oneMillion = 1e24;
-        uint256 initDaiBal = sdai.maxWithdraw(address(clearinghouse));
+        uint256 sdaiOneMillion = sdai.previewWithdraw(1e24);
+        uint256 daiInitCH = sdai.maxWithdraw(address(clearinghouse));
+        uint256 sdaiInitCH = sdai.balanceOf(address(clearinghouse));
 
         // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
         dai.mint(address(clearinghouse), oneMillion);
         clearinghouse.sweepIntoDSR();
 
-        assertEq(sdai.maxWithdraw(address(clearinghouse)), initDaiBal + oneMillion);
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH + oneMillion, "DAI balance CH");
+        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH + sdaiOneMillion, "sDAI balance CH");
 
-        uint256 prevTrsryDaiBal = dai.balanceOf(address(TRSRY));
-        uint256 prevDaiBal = sdai.maxWithdraw(address(clearinghouse));
+        uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
+        uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
 
         clearinghouse.rebalance();
 
-        assertEq(prevTrsryDaiBal + oneMillion, dai.balanceOf(address(TRSRY)));
-        assertEq(prevDaiBal - oneMillion, sdai.maxWithdraw(address(clearinghouse)));
+        assertEq(daiInitTRSRY + oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
+        assertEq(sdaiInitTRSRY + sdaiOneMillion, sdai.balanceOf(address(TRSRY)), "sDAI balance TRSRY");
+        assertEq(clearinghouse.FUND_AMOUNT(), sdai.maxWithdraw(address(clearinghouse)), "FUND_AMOUNT");
     }
 
     function testRevert_rebalance_early() public {
