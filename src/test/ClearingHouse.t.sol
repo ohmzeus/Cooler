@@ -469,8 +469,9 @@ contract ClearingHouseTest is Test {
         // Move forward after the loan has ended
         _skip(clearinghouse.DURATION() + 1);
 
-        // Cache clearinghouse receivables
+        // Cache clearinghouse receivables and TRSRY debt
         uint256 initReceivables = clearinghouse.receivables();
+        uint256 initDebt = TRSRY.reserveDebt(sdai, address(clearinghouse));
         
         // Claim defaulted loan
         vm.prank(overseer);
@@ -478,6 +479,8 @@ contract ClearingHouseTest is Test {
 
         // Check: clearinghouse storage
         assertEq(clearinghouse.receivables(), initReceivables > initLoan.amount ? initReceivables - initLoan.amount : 0);
+        // Check: TRSRY storage
+        assertEq(TRSRY.reserveDebt(sdai, address(clearinghouse)), initDebt > initLoan.amount ? initDebt - initLoan.amount : 0);
     }
 
     function testRevert_onDefault_notFromFactory() public {
