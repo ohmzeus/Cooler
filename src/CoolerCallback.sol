@@ -26,12 +26,6 @@ abstract contract CoolerCallback {
         require(factory.created(msg.sender), "ONLY_FROM_FACTORY");
     }
 
-    /// @notice Callback function that handles defaults.
-    function onDefault(uint256 loanID, uint256 amount, uint256 collateral) external virtual {
-        _onlyFromFactory();
-        // Callback Logic
-    }
-
     /// @notice Callback function that handles repayments.
     function onRepay(uint256 loanID, uint256 amount) external virtual { 
         _onlyFromFactory();
@@ -39,7 +33,13 @@ abstract contract CoolerCallback {
     }
 
     /// @notice Callback function that handles rollovers.
-    function onRoll(uint256 loanID) external virtual {
+    function onRoll(uint256 loanID, uint256 newDebt, uint256 newCollateral) external virtual {
+        _onlyFromFactory();
+        // Callback Logic
+    }
+
+    /// @notice Callback function that handles defaults.
+    function onDefault(uint256 loanID, uint256 debt, uint256 collateral) external virtual {
         _onlyFromFactory();
         // Callback Logic
     }
