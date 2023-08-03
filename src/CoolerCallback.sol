@@ -47,11 +47,11 @@ abstract contract CoolerCallback {
     // --- INTERNAL FUNCTIONS ------------------------------------------------
 
     /// @notice Callback function that handles repayments. Override for custom logic.
-    function _onRepay(uint256 loanID_, uint256 amount_) internal virtual;
+    function _onRepay(uint256 loanID_, uint256 amount_) internal virtual {}
 
     /// @notice Callback function that handles rollovers.
-    function _onRoll(uint256 loanID_, uint256 newDebt, uint256 newCollateral) internal virtual;
+    function _onRoll(uint256 loanID_, uint256 newDebt, uint256 newCollateral) internal virtual {}
 
     /// @notice Callback function that handles defaults.
-    function _onDefault(uint256 loanID_, uint256 debt, uint256 collateral) internal virtual;
+    function _onDefault(uint256 loanID_, uint256 debt, uint256 collateral) internal virtual {}
 }
