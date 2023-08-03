@@ -17,7 +17,6 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- ERRORS ----------------------------------------------------
 
-    error OnlyFromFactory();
     error BadEscrow();
     error DurationMaximum();
     error OnlyBurnable();
@@ -147,10 +146,6 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         receivables += debtForCollateral(newCollateral);
     }
 
-    /// @notice Unused callback since rollLoan() is handled by the clearinghouse.
-    /// @dev The call back is overriden and left empty to avoid calling _onlyFromFactory()
-    function onRoll(uint256, uint256, uint256) external override {}
-
     /// @notice Batch several default claims to save gas.
     ///         The elements on both arrays must be paired based on their index.
     /// @param coolers_ Contracts where the default must be claimed.
@@ -186,16 +181,21 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral, false, false));
     }
 
-    /// @notice Unused callback since defaults will be batched to save gas.
-    /// @dev The call back is overriden and left empty to avoid calling _onlyFromFactory()
-    function onDefault(uint256, uint256, uint256) external override {}
+    // --- CALLBACKS -----------------------------------------------------
+
+    /// @notice Unused callback since rollLoan() is handled by the clearinghouse.
+    /// @dev Overriden and left empty to save gas.
+    function _onRoll(uint256, uint256, uint256) internal override {}
+
+    /// @notice Unused callback since defaults are handled by the clearinghouse.
+    /// @dev Overriden and left empty to save gas.
+    function _onDefault(uint256, uint256, uint256) internal override {}
 
     /// @notice Callback to decrement loan receivables.
     /// *unused loadID_ of the load.
     /// @param amount_ repaid (in DAI).
-    function onRepay(uint256, uint256 amount_) external override {
-        // Validate caller is cooler
-        if (!factory.created(msg.sender)) revert OnlyFromFactory();
+    function _onRepay(uint256, uint256 amount_) internal override {
+        _onlyFromFactory();   // Validate caller is a Cooler deployed by the factory.
 
         dai.approve(address(sDai), amount_);
         uint256 interest = interestFromDebt(amount_);

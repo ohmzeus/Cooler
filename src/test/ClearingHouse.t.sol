@@ -17,7 +17,7 @@ import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol
 import {OlympusTreasury, TRSRYv1} from "olympus-v3/modules/TRSRY/OlympusTreasury.sol";
 //import {Actions} from "olympus-v3/Kernel.sol";
 
-import {ClearingHouse, Cooler, CoolerFactory} from "src/ClearingHouse.sol";
+import {ClearingHouse, Cooler, CoolerFactory, CoolerCallback} from "src/ClearingHouse.sol";
 //import {Cooler, Loan, Request} from "src/Cooler.sol";
 
 // Tests for ClearingHouse
@@ -224,7 +224,7 @@ contract ClearingHouseTest is Test {
         Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
         // Coolers not created by the CoolerFactory could be malicious.
         vm.prank(address(maliciousCooler));
-        vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
+        vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
         clearinghouse.lendToCooler(maliciousCooler, 1e18);
     }
 
@@ -455,7 +455,7 @@ contract ClearingHouseTest is Test {
         Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
         // Coolers not created by the CoolerFactory could be malicious.
         vm.prank(address(maliciousCooler));
-        vm.expectRevert(ClearingHouse.OnlyFromFactory.selector);
+        vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
         clearinghouse.onRepay(0, 1e18);
     }
 
