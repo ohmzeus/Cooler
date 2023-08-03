@@ -27,44 +27,31 @@ abstract contract CoolerCallback {
     }
 
     /// @notice Callback function that handles repayments.
-    function onRepay(uint256 loanID, uint256 amount) external { 
-        _onRepay(loanID, amount);
+    function onRepay(uint256 loanID_, uint256 amount_) external { 
+        if(!factory.created(msg.sender)) revert OnlyFromFactory();
+        _onRepay(loanID_, amount_);
     }
 
     /// @notice Callback function that handles rollovers.
-    function onRoll(uint256 loanID, uint256 newDebt, uint256 newCollateral) external {
-        _onRoll(loanID, newDebt, newCollateral);
+    function onRoll(uint256 loanID_, uint256 newDebt, uint256 newCollateral) external {
+        if(!factory.created(msg.sender)) revert OnlyFromFactory();
+        _onRoll(loanID_, newDebt, newCollateral);
     }
 
     /// @notice Callback function that handles defaults.
-    function onDefault(uint256 loanID, uint256 debt, uint256 collateral) external {
-        _onDefault(loanID, debt, collateral);
+    function onDefault(uint256 loanID_, uint256 debt, uint256 collateral) external {
+        if(!factory.created(msg.sender)) revert OnlyFromFactory();
+        _onDefault(loanID_, debt, collateral);
     }
 
     // --- INTERNAL FUNCTIONS ------------------------------------------------
 
-    /// @dev Ensures that the callback caller is a Cooler deployed by the factory.
-    ///      Failing to implement this check properly may lead to unexpected/malicious
-    ///      contracts calling the lender's callback functions.
-    function _onlyFromFactory() internal view virtual {
-        if(!factory.created(msg.sender)) revert OnlyFromFactory();
-    }
-
-    /// @notice Callback function that handles repayments.
-    function _onRepay(uint256 loanID, uint256 amount) internal virtual { 
-        _onlyFromFactory();
-        // Callback Logic
-    }
+    /// @notice Callback function that handles repayments. Override for custom logic.
+    function _onRepay(uint256 loanID_, uint256 amount_) internal virtual;
 
     /// @notice Callback function that handles rollovers.
-    function _onRoll(uint256 loanID, uint256 newDebt, uint256 newCollateral) internal virtual {
-        _onlyFromFactory();
-        // Callback Logic
-    }
+    function _onRoll(uint256 loanID_, uint256 newDebt, uint256 newCollateral) internal virtual;
 
     /// @notice Callback function that handles defaults.
-    function _onDefault(uint256 loanID, uint256 debt, uint256 collateral) internal virtual {
-        _onlyFromFactory();
-        // Callback Logic
-    }
+    function _onDefault(uint256 loanID_, uint256 debt, uint256 collateral) internal virtual;
 }
