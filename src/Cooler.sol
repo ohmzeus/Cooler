@@ -215,8 +215,10 @@ contract Cooler is Clone {
         bool isCallback_
     ) external returns (uint256 loanID) {
         Request storage req = requests[reqID_];
+
         // Ensure lender implements the CoolerCallback abstract
-        if (isCallback_) if (!CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+        if (isCallback_ && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
 

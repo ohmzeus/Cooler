@@ -183,20 +183,10 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- CALLBACKS -----------------------------------------------------
 
-    /// @notice Unused callback since rollLoan() is handled by the clearinghouse.
-    /// @dev Overriden and left empty to save gas.
-    function _onRoll(uint256, uint256, uint256) internal override {}
-
-    /// @notice Unused callback since defaults are handled by the clearinghouse.
-    /// @dev Overriden and left empty to save gas.
-    function _onDefault(uint256, uint256, uint256) internal override {}
-
-    /// @notice Callback to decrement loan receivables.
-    /// *unused loadID_ of the load.
+    /// @notice Overridden callback to decrement loan receivables.
+    /// @param *unused loadID_ of the load.
     /// @param amount_ repaid (in DAI).
     function _onRepay(uint256, uint256 amount_) internal override {
-        _onlyFromFactory();   // Validate caller is a Cooler deployed by the factory.
-
         dai.approve(address(sDai), amount_);
         uint256 interest = interestFromDebt(amount_);
         // Sweep into DSR. Keep amount lent.
