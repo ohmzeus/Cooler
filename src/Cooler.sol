@@ -192,7 +192,7 @@ contract Cooler is Clone {
             collateral().safeTransferFrom(msg.sender, address(this), newCollateral);
         }
 
-        if (loan.callback) CoolerCallback(loan.lender).onRoll(loanID_);
+        if (loan.callback) CoolerCallback(loan.lender).onRoll(loanID_, newDebt, newCollateral);
     }
 
     /// @notice Delegate voting power on collateral.
@@ -215,8 +215,10 @@ contract Cooler is Clone {
         bool isCallback_
     ) external returns (uint256 loanID) {
         Request storage req = requests[reqID_];
+
         // Ensure lender implements the CoolerCallback abstract
-        if (isCallback_) if (!CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+        if (isCallback_ && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
 
@@ -281,7 +283,7 @@ contract Cooler is Clone {
     /// @notice Claim collateral upon loan default.
     /// @param loanID_ index of loan in loans[]
     /// @return uint256 collateral amount.
-    function claimDefaulted(uint256 loanID_) external returns (uint256) {
+    function claimDefaulted(uint256 loanID_) external returns (uint256, uint256) {
         Loan memory loan = loans[loanID_];
         delete loans[loanID_];
 
@@ -290,7 +292,7 @@ contract Cooler is Clone {
         collateral().safeTransfer(loan.lender, loan.collateral);
 
         if (loan.callback) CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
-        return loan.collateral;
+        return (loan.amount, loan.collateral);
     }
 
     /// @notice Approve transfer of loan ownership rights to a new address.
