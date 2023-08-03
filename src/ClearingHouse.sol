@@ -29,7 +29,6 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     ERC4626 public immutable sDai;
     ERC20 public immutable gOHM;
     IStaking public immutable staking;
-    address public streaming;
     
     // --- MODULES ---------------------------------------------------
 
@@ -56,14 +55,12 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         address staking_,
         address sdai_,
         address coolerFactory_,
-        address kernel_,
-        address streaming_
+        address kernel_
     ) Policy(Kernel(kernel_)) CoolerCallback(coolerFactory_) {
         gOHM = ERC20(gohm_);
         staking = IStaking(staking_);
         sDai = ERC4626(sdai_);
         dai = ERC20(sDai.asset());
-        streaming = streaming_;
         // Initialize funding schedule.
         fundTime = block.timestamp;
     }
@@ -187,16 +184,19 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param *unused loadID_ of the load.
     /// @param amount_ repaid (in DAI).
     function _onRepay(uint256, uint256 amount_) internal override {
-        dai.approve(address(sDai), amount_);
-        uint256 interest = interestFromDebt(amount_);
-        // Sweep into DSR. Keep amount lent.
-        sDai.deposit(amount_ - interest, address(this));
-        // Sweep into DSR. Stream the interest earned.        
-        sDai.deposit(interest, streaming);
+        _sweepIntoDSR(amount_);
 
         // Decrement loan receivables.
         receivables = (receivables > amount_) ? receivables - amount_ : 0;
     }
+    
+    /// @notice Unused callback since rollovers are handled by the clearinghouse.
+    /// @dev Overriden and left empty to save gas.
+    function _onRoll(uint256, uint256, uint256) internal override {}
+
+    /// @notice Unused callback since defaults are handled by the clearinghouse.
+    /// @dev Overriden and left empty to save gas.
+    function _onDefault(uint256, uint256, uint256) internal override {}
 
     // --- FUNDING ---------------------------------------------------
 
@@ -217,7 +217,9 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
             // Fund the clearinghouse with treasury assets.
             TRSRY.increaseDebtorApproval(address(this), sDai, amount);
             TRSRY.incurDebt(sDai, amount);
-            sweepIntoDSR();
+            // Sweep into DSR if necessary
+            uint256 idle = dai.balanceOf(address(this));
+            if (idle != 0) _sweepIntoDSR(idle);
         } else if (balance > FUND_AMOUNT) {
             uint256 defundAmount = balance - FUND_AMOUNT;
             // Since TRSRY denominates in sDAI, a conversion must be done beforehand.
@@ -232,10 +234,13 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Sweep excess DAI into vault.
     function sweepIntoDSR() public {
         uint256 balance = dai.balanceOf(address(this));
-        if (balance != 0) {
-            dai.approve(address(sDai), balance);
-            sDai.deposit(balance, address(this));
-        }
+        _sweepIntoDSR(balance);
+    }
+
+    /// @notice Sweep excess DAI into vault.
+    function _sweepIntoDSR(uint256 amount_) internal {
+        dai.approve(address(sDai), amount_);
+        sDai.deposit(amount_, address(this));
     }
 
     /// @notice Return funds to treasury.

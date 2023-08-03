@@ -78,15 +78,13 @@ contract ClearingHouseTest is Test {
     address internal user;
     address internal others;
     address internal overseer;
-    address internal streamer;
     uint256 internal initialSDai;
 
     function setUp() public {
-        address[] memory users = (new UserFactory()).create(4);
+        address[] memory users = (new UserFactory()).create(3);
         user = users[0];
         others = users[1];
         overseer = users[2];
-        streamer = users[3];
 
         MockStaking staking = new MockStaking();
         factory = new CoolerFactory();
@@ -107,8 +105,7 @@ contract ClearingHouseTest is Test {
             address(staking),
             address(sdai),
             address(factory),
-            address(kernel),
-            streamer
+            address(kernel)
         );
         rolesAdmin = new RolesAdmin(kernel);
 
