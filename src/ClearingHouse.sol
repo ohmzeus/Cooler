@@ -270,4 +270,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         uint256 interest = loan * interestPercent / 1e18;
         return loan + interest;
     }
+    
+    /// @notice view function to compute the interest for a given debt amount.
+    /// @param debt_ amount of gOHM.
+    function interestFromDebt(uint256 debt_) public pure returns (uint256) {
+        uint256 interestPercent = (INTEREST_RATE * DURATION) / 365 days;
+        return debt_ * interestPercent / 1e18;
+    }
 }
