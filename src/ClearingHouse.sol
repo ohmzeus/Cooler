@@ -81,12 +81,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     function requestPermissions() external view override returns (Permissions[] memory requests) {
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
-        requests = new Permissions[](5);
+        requests = new Permissions[](4);
         requests[0] = Permissions(TRSRY_KEYCODE, TRSRY.setDebt.selector);
-        requests[1] = Permissions(TRSRY_KEYCODE, TRSRY.repayDebt.selector);
-        requests[2] = Permissions(TRSRY_KEYCODE, TRSRY.incurDebt.selector);
-        requests[3] = Permissions(TRSRY_KEYCODE, TRSRY.increaseDebtorApproval.selector);
-        requests[4] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
+        requests[1] = Permissions(TRSRY_KEYCODE, TRSRY.increaseWithdrawApproval.selector);
+        requests[2] = Permissions(TRSRY_KEYCODE, TRSRY.withdrawReserves.selector);
+        requests[3] = Permissions(toKeycode("MINTR"), MINTR.burnOhm.selector);
     }
 
     // --- OPERATION -------------------------------------------------
@@ -170,9 +169,9 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         // Decrement loan receivables.
         receivables = (receivables > totalDebt) ? receivables - totalDebt : 0;
         // Update outstanding debt owed to the Treasury upon default.
-        uint256 outstandingDebt = TRSRY.reserveDebt(sDai, address(this));
-        // Since TRSRY denominates in sDAI, DAI must be converted beforehand.
-        TRSRY.setDebt(address(this), sDai, outstandingDebt - sDai.previewDeposit(totalDebt - totalInterest));
+        uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
+        // TRSRY debt = user debt - user interest
+        TRSRY.setDebt(address(this), dai, outstandingDebt - (totalDebt - totalInterest));
         // Unstake and burn the collateral of the defaulted loans.
         gOHM.approve(address(staking), totalCollateral);
         MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral, false, false));
@@ -209,24 +208,42 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         fundTime += FUND_CADENCE;
 
         uint256 balance = sDai.maxWithdraw(address(this));
+        uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         // Rebalance funds on hand with treasury's reserves.
         if (balance < FUND_AMOUNT) {
+            // Since users will take their loans in DAI,
+            // the clearinghouse debt is set in DAI terms.
             uint256 fundAmount = FUND_AMOUNT - balance;
-            // Since TRSRY denominates in sDAI, a conversion must be done beforehand.
+            TRSRY.setDebt({
+                debtor_: address(this),
+                token_: dai,
+                amount_: outstandingDebt + fundAmount
+            });
+
+            // Since TRSRY holds sDAI, a conversion must be done before
+            // funding the clearinghouse.
             uint256 amount = sDai.previewWithdraw(fundAmount);
-            // Fund the clearinghouse with treasury assets.
-            TRSRY.increaseDebtorApproval(address(this), sDai, amount);
-            TRSRY.incurDebt(sDai, amount);
-            // Sweep into DSR if necessary
+            TRSRY.increaseWithdrawApproval(address(this), sDai, amount);
+            TRSRY.withdrawReserves(address(this), sDai, amount);
+
+            // Sweep DAI into DSR if necessary.
             uint256 idle = dai.balanceOf(address(this));
             if (idle != 0) _sweepIntoDSR(idle);
         } else if (balance > FUND_AMOUNT) {
+            // Since users will take their loans in DAI,
+            // the clearinghouse debt is set in DAI terms.
             uint256 defundAmount = balance - FUND_AMOUNT;
-            // Since TRSRY denominates in sDAI, a conversion must be done beforehand.
+            TRSRY.setDebt({
+                debtor_: address(this),
+                token_: dai,
+                amount_: (outstandingDebt > defundAmount) ? outstandingDebt - defundAmount : 0
+            });
+
+            // Since TRSRY holds sDAI, a conversion must be done before
+            // sending sDAI back.
             uint256 amount = sDai.previewWithdraw(defundAmount);
-            // Send sDAI back to the treasury
             sDai.approve(address(TRSRY), amount);
-            TRSRY.repayDebt(address(this), sDai, amount);
+            sDai.transfer(address(TRSRY), amount);
         }
         return true;
     }
@@ -249,15 +266,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
 
-        // If there is an outstanding debt, repay it.
-        if (TRSRY.reserveDebt(token_, address(this)) != 0) {
-            token_.approve(address(TRSRY), amount_);
-            TRSRY.repayDebt(address(this), token_, amount_);
-        }
-        // Otherwise, transfer just the tokens.
-        else {
-            token_.transfer(address(TRSRY), amount_);
-        }
+        token_.transfer(address(TRSRY), amount_);
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
