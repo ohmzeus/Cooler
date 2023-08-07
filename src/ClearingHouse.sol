@@ -171,7 +171,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         // TRSRY debt = user debt - user interest
-        TRSRY.setDebt(address(this), dai, outstandingDebt - (totalDebt - totalInterest));
+        TRSRY.setDebt({
+            debtor_: address(this),
+            token_: dai,
+            amount_: outstandingDebt - (totalDebt - totalInterest)
+        });
         // Unstake and burn the collateral of the defaulted loans.
         gOHM.approve(address(staking), totalCollateral);
         MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral, false, false));
