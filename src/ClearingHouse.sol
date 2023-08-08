@@ -26,7 +26,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     // --- RELEVANT CONTRACTS ----------------------------------------
 
     ERC20 public immutable dai;
-    ERC4626 public immutable sDai;
+    ERC4626 public immutable sdai;
     ERC20 public immutable gOHM;
     IStaking public immutable staking;
     
@@ -59,8 +59,8 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     ) Policy(Kernel(kernel_)) CoolerCallback(coolerFactory_) {
         gOHM = ERC20(gohm_);
         staking = IStaking(staking_);
-        sDai = ERC4626(sdai_);
-        dai = ERC20(sDai.asset());
+        sdai = ERC4626(sdai_);
+        dai = ERC20(sdai.asset());
         // Initialize funding schedule.
         fundTime = block.timestamp;
     }
@@ -111,7 +111,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         uint256 reqID = cooler_.requestLoan(amount_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
         // Clear loan request by providing enough DAI.
-        sDai.withdraw(amount_, address(this), address(this));
+        sdai.withdraw(amount_, address(this), address(this));
         dai.approve(address(cooler_), amount_);
         uint256 loanID = cooler_.clearRequest(reqID, true, true);
 
@@ -170,7 +170,7 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         receivables = (receivables > totalDebt) ? receivables - totalDebt : 0;
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-        // TRSRY debt = user debt - user interest
+        // debt owed to TRSRY = user debt - user interest
         TRSRY.setDebt({
             debtor_: address(this),
             token_: dai,
@@ -211,13 +211,13 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
-        uint256 balance = sDai.maxWithdraw(address(this));
+        uint256 daiBalance = sdai.maxWithdraw(address(this));
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         // Rebalance funds on hand with treasury's reserves.
-        if (balance < FUND_AMOUNT) {
-            // Since users will take their loans in DAI,
-            // the clearinghouse debt is set in DAI terms.
-            uint256 fundAmount = FUND_AMOUNT - balance;
+        if (daiBalance < FUND_AMOUNT) {
+            // Since users loans are denominated in DAI, the clearinghouse
+            // debt is set in DAI terms. It must be adjusted when funding.
+            uint256 fundAmount = FUND_AMOUNT - daiBalance;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
@@ -226,17 +226,17 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
             // Since TRSRY holds sDAI, a conversion must be done before
             // funding the clearinghouse.
-            uint256 amount = sDai.previewWithdraw(fundAmount);
-            TRSRY.increaseWithdrawApproval(address(this), sDai, amount);
-            TRSRY.withdrawReserves(address(this), sDai, amount);
+            uint256 sdaiAmount = sdai.previewWithdraw(fundAmount);
+            TRSRY.increaseWithdrawApproval(address(this), sdai, sdaiAmount);
+            TRSRY.withdrawReserves(address(this), sdai, sdaiAmount);
 
             // Sweep DAI into DSR if necessary.
             uint256 idle = dai.balanceOf(address(this));
             if (idle != 0) _sweepIntoDSR(idle);
-        } else if (balance > FUND_AMOUNT) {
-            // Since users will take their loans in DAI,
-            // the clearinghouse debt is set in DAI terms.
-            uint256 defundAmount = balance - FUND_AMOUNT;
+        } else if (daiBalance > FUND_AMOUNT) {
+            // Since users loans are denominated in DAI, the clearinghouse
+            // debt is set in DAI terms. It must be adjusted when defunding.
+            uint256 defundAmount = daiBalance - FUND_AMOUNT;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
@@ -245,23 +245,23 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
             // Since TRSRY holds sDAI, a conversion must be done before
             // sending sDAI back.
-            uint256 amount = sDai.previewWithdraw(defundAmount);
-            sDai.approve(address(TRSRY), amount);
-            sDai.transfer(address(TRSRY), amount);
+            uint256 sdaiAmount = sdai.previewWithdraw(defundAmount);
+            sdai.approve(address(TRSRY), sdaiAmount);
+            sdai.transfer(address(TRSRY), sdaiAmount);
         }
         return true;
     }
 
     /// @notice Sweep excess DAI into vault.
     function sweepIntoDSR() public {
-        uint256 balance = dai.balanceOf(address(this));
-        _sweepIntoDSR(balance);
+        uint256 daiBalance = dai.balanceOf(address(this));
+        _sweepIntoDSR(daiBalance);
     }
 
     /// @notice Sweep excess DAI into vault.
     function _sweepIntoDSR(uint256 amount_) internal {
-        dai.approve(address(sDai), amount_);
-        sDai.deposit(amount_, address(this));
+        dai.approve(address(sdai), amount_);
+        sdai.deposit(amount_, address(this));
     }
 
     /// @notice Return funds to treasury.
@@ -269,7 +269,18 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     /// @param amount_ to transfer.
     function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
-
+        if (token_ == sdai) {
+            // Since users loans are denominated in DAI, the clearinghouse
+            // debt is set in DAI terms. It must be adjusted when defunding.
+            uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
+            uint256 daiAmount = sdai.previewRedeem(amount_);
+            TRSRY.setDebt({
+                debtor_: address(this),
+                token_: dai,
+                amount_: (outstandingDebt > daiAmount) ? outstandingDebt - daiAmount : 0
+            });
+        }
+        
         token_.transfer(address(TRSRY), amount_);
     }
 
