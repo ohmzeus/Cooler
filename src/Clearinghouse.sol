@@ -20,7 +20,7 @@ import {CoolerCallback} from "src/CoolerCallback.sol";
 ///         approved by the community in OIP-144 and its subsequent RFCs. The Clearinghouse parameters are
 ///         immutable, because of that, if backing was to increase substantially, a new governance process
 ///         to fork this implementation with upgraded parameters should take place.
-///         Despite the Cooler contracts allow lenders to transfer ownership of their repayment rights, the
+///         Although the Cooler contracts allow lenders to transfer ownership of their repayment rights, the
 ///         Clearinghouse doesn't implement any functions to use that feature.
 contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
