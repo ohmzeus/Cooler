@@ -29,10 +29,12 @@ contract CoolerFactoryTest is Test {
     CoolerFactory internal coolerFactory;
 
     // CoolerFactory Expected events
-    event Clear(address cooler, uint256 reqID);
-    event Repay(address cooler, uint256 loanID, uint256 amount);
-    event Rescind(address cooler, uint256 reqID);
-    event Request(address cooler, address collateral, address debt, uint256 reqID);
+    event RequestLoan(address cooler, address collateral, address debt, uint256 reqID);
+    event RescindRequest(address cooler, uint256 reqID);
+    event ClearRequest(address cooler, uint256 reqID);
+    event RepayLoan(address cooler, uint256 loanID, uint256 amount);
+    event RollLoan(address cooler, uint256 loanID);
+    event DefaultLoan(address cooler, uint256 loanID);
 
     function setUp() public {
         vm.warp(51 * 365 * 24 * 60 * 60); // Set timestamp at roughly Jan 1, 2021 (51 years since Unix epoch)
@@ -85,22 +87,30 @@ contract CoolerFactoryTest is Test {
         address cooler = coolerFactory.generateCooler(collateral, debt);
 
         vm.startPrank(cooler);
-        // Clear Event
-        vm.expectEmit(true, true, false, false);
-        emit Clear(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.Clear, amount);
-        // Repay Event
-        vm.expectEmit(true, true, true, false);
-        emit Repay(cooler, id, amount);
-        coolerFactory.newEvent(id, CoolerFactory.Events.Repay, amount);
-        // Rescind Event
-        vm.expectEmit(true, true, false, false);
-        emit Rescind(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.Rescind, amount);
         // Request Event
         vm.expectEmit(true, true, true, true);
-        emit Request(cooler, address(collateral), address(debt), id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.Request, amount);
+        emit RequestLoan(cooler, address(collateral), address(debt), id);
+        coolerFactory.newEvent(id, CoolerFactory.Events.RequestLoan, amount);
+        // Rescind Event
+        vm.expectEmit(true, true, false, false);
+        emit RescindRequest(cooler, id);
+        coolerFactory.newEvent(id, CoolerFactory.Events.RescindRequest, amount);
+        // Clear Event
+        vm.expectEmit(true, true, false, false);
+        emit ClearRequest(cooler, id);
+        coolerFactory.newEvent(id, CoolerFactory.Events.ClearRequest, amount);
+        // Repay Event
+        vm.expectEmit(true, true, true, false);
+        emit RepayLoan(cooler, id, amount);
+        coolerFactory.newEvent(id, CoolerFactory.Events.RepayLoan, amount);
+        // Rollover Event
+        vm.expectEmit(true, true, false, false);
+        emit RollLoan(cooler, id);
+        coolerFactory.newEvent(id, CoolerFactory.Events.RollLoan, amount);
+        // Default Event
+        vm.expectEmit(true, true, false, false);
+        emit DefaultLoan(cooler, id);
+        coolerFactory.newEvent(id, CoolerFactory.Events.DefaultLoan, amount);
     }
 
     function testRevert_newEvent() public {
@@ -110,6 +120,6 @@ contract CoolerFactoryTest is Test {
         // Only coolers can emit events
         vm.prank(alice);
         vm.expectRevert("Only Created");
-        coolerFactory.newEvent(id, CoolerFactory.Events.Clear, amount);
+        coolerFactory.newEvent(id, CoolerFactory.Events.ClearRequest, amount);
     }
 }

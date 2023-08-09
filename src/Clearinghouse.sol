@@ -13,7 +13,16 @@ import {IStaking} from "interfaces/IStaking.sol";
 import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
 import {CoolerCallback} from "src/CoolerCallback.sol";
 
-contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
+/// @title  Olympus Clearinghouse.
+/// @notice Olympus Clearinghouse (Policy) Contract.
+/// @dev    The Olympus Clearinghouse is a lending facility built on top of Cooler Loans. The Clearinghouse
+///         ensures that OHM holders can take loans against their gOHM holdings according to the parameters
+///         approved by the community in OIP-144 and its subsequent RFCs. The Clearinghouse parameters are
+///         immutable, because of that, if backing was to increase substantially, a new governance process
+///         to fork this implementation with upgraded parameters should take place.
+///         Although the Cooler contracts allow lenders to transfer ownership of their repayment rights, the
+///         Clearinghouse doesn't implement any functions to use that feature.
+contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- ERRORS ----------------------------------------------------
 
@@ -92,9 +101,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     // --- OPERATION -------------------------------------------------
 
     /// @notice Lend to a cooler.
-    /// @param cooler_ to lend to.
-    /// @param amount_ of DAI to lend.
-    /// @return the ID of the new loan.
+    /// @dev    To simplify the UX and easily ensure that all holders get the same terms,
+    ///         this function requests a new loan and clears it in the same transaction.
+    /// @param  cooler_ to lend to.
+    /// @param  amount_ of DAI to lend.
+    /// @return the id of the granted loan.
     function lendToCooler(Cooler cooler_, uint256 amount_) external returns (uint256) {
         // Attempt a clearinghouse <> treasury rebalance.
         rebalance();
@@ -122,9 +133,12 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
         return loanID;
     }
 
-    /// @notice Provide terms for loan and execute the rollover.
-    /// @param cooler_ to provide terms.
-    /// @param loanID_ of loan in cooler.
+    /// @notice Rollover an existing loan.
+    /// @dev    To simplify the UX and easily ensure that all holders get the same terms,
+    ///         this function provides the governance-approved terms for a rollover and
+    ///         does the loan rollover in the same transaction.
+    /// @param  cooler_ to provide terms.
+    /// @param  loanID_ of loan in cooler.
     function rollLoan(Cooler cooler_, uint256 loanID_) external {
         // Provide rollover terms.
         cooler_.provideNewTermsForRoll(loanID_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
@@ -200,10 +214,11 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- FUNDING ---------------------------------------------------
 
-    /// @notice Fund loan liquidity from treasury. Returns false if too early to rebalance.
-    ///         Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
+    /// @notice Fund loan liquidity from treasury.
+    /// @dev    Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
     ///         If several rebalances are available (because some were missed), calling this
     ///         function several times won't impact the funds controlled by the contract.
+    /// @return False if too early to rebalance. Otherwise, true.
     function rebalance() public returns (bool) {
         if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
@@ -244,8 +259,8 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Return funds to treasury.
-    /// @param token_ to transfer.
-    /// @param amount_ to transfer.
+    /// @param  token_ to transfer.
+    /// @param  amount_ to transfer.
     function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
 
@@ -262,8 +277,9 @@ contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- AUX FUNCTIONS ---------------------------------------------
     
-    /// @notice view function to compute the total debt for a given collateral amount.
-    /// @param collateral_ amount of gOHM.
+    /// @notice view function computing loan for a collateral amount.
+    /// @param  collateral_ amount of gOHM.
+    /// @return debt (amount to be lent + interest) for a given collateral amount.
     function debtForCollateral(uint256 collateral_) public pure returns (uint256) {
         uint256 interestPercent = (INTEREST_RATE * DURATION) / 365 days;
         uint256 loan = collateral_ * LOAN_TO_COLLATERAL / 1e18;
