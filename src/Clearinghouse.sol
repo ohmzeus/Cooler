@@ -22,7 +22,7 @@ import {CoolerCallback} from "src/CoolerCallback.sol";
 ///         to fork this implementation with upgraded parameters should take place.
 ///         Despite the Cooler contracts allow lenders to transfer ownership of their repayment rights, the
 ///         Clearinghouse doesn't implement any functions to use that feature.
-contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
+contract ClearingHouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- ERRORS ----------------------------------------------------
 
