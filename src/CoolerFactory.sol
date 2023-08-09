@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.15;
 
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {ClonesWithImmutableArgs} from "clones/ClonesWithImmutableArgs.sol";
 
 import {Cooler} from "./Cooler.sol";
 
-/// @notice the Cooler Factory creates new Cooler escrow contracts
-///
-/// @dev This contract uses Clones (https://github.com/wighawag/clones-with-immutable-args)
-///      to save gas on deployment
+/// @title  Cooler Loans Factory.
+/// @notice The Cooler Factory creates new Cooler escrow contracts.
+/// @dev    This contract uses Clones (https://github.com/wighawag/clones-with-immutable-args)
+///         to save gas on deployment.
 contract CoolerFactory {
     using ClonesWithImmutableArgs for address;
 
@@ -54,7 +54,7 @@ contract CoolerFactory {
     /// @notice creates a new Escrow contract for collateral and debt tokens.
     /// @param  collateral_ the token given as collateral.
     /// @param  debt_ the token to be lent. Interest is denominated in debt tokens.
-    /// @return address of the Cooler contract.
+    /// @return cooler address of the contract.
     function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (address cooler) {
         // Return address if cooler exists.
         cooler = coolerFor[msg.sender][collateral_][debt_];
@@ -78,7 +78,7 @@ contract CoolerFactory {
 
     enum Events {
         RequestLoan,
-        RescindResquest,
+        RescindRequest,
         ClearRequest,
         RepayLoan,
         RollLoan,
@@ -94,8 +94,8 @@ contract CoolerFactory {
 
         if (ev_ == Events.RequestLoan) {
             emit RequestLoan(msg.sender, address(Cooler(msg.sender).collateral()), address(Cooler(msg.sender).debt()), id_);
-        } else if (ev_ == Events.RescindResquest) {
-            emit RescindResquest(msg.sender, id_);
+        } else if (ev_ == Events.RescindRequest) {
+            emit RescindRequest(msg.sender, id_);
         } else if (ev_ == Events.ClearRequest) {
             emit ClearRequest(msg.sender, id_);
         } else if (ev_ == Events.RepayLoan) {

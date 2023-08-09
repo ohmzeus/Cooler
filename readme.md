@@ -5,7 +5,7 @@ With the successful conclusion of OIP-XXX, Olympus will implement a lending faci
 Such lending facility has been built on top of 3 smartcontracts:
 - `CoolerFactory.sol`
 - `Cooler.sol`
-- `ClearingHouse.sol`
+- `Clearinghouse.sol`
 
 A `Cooler` is an escrow contract that facilitates fixed-duration, peer-to-peer loans for a user-defined debt-collateral pair. On top of that, the `CoolerFactory` is a contract in charge of deploying new coolers for any user who wants to access the lending facility.
 
