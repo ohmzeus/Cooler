@@ -1,0 +1,2 @@
+LockTest:test_smartLock() (gas: 7940)
+LockTest:test_stdLock() (gas: 7672)
