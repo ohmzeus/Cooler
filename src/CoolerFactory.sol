@@ -102,7 +102,7 @@ contract CoolerFactory {
             emit RepayLoan(msg.sender, id_, amount_);
         } else if (ev_ == Events.RollLoan) {
             emit RollLoan(msg.sender, id_);
-        } else {
+        } else if (ev_ == Events.DefaultLoan) {
             emit DefaultLoan(msg.sender, id_);
         }
     }
