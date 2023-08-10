@@ -140,6 +140,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  cooler_ to provide terms.
     /// @param  loanID_ of loan in cooler.
     function rollLoan(Cooler cooler_, uint256 loanID_) external {
+        // Validate that cooler was deployed by the trusted factory.
+        if (!factory.created(address(cooler_))) revert OnlyFromFactory();
+
         // Provide rollover terms.
         cooler_.provideNewTermsForRoll(loanID_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
@@ -169,6 +172,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 totalInterest;
         uint256 totalCollateral;
         for (uint256 i=0; i < loans;) {
+            // Validate that cooler was deployed by the trusted factory.
+            if (!factory.created(coolers_[i])) revert OnlyFromFactory();
+            
             (uint256 debt, uint256 collateral) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
             uint256 interest = interestFromDebt(debt);
             unchecked {
@@ -266,6 +272,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // If there is an outstanding debt, repay it.
         if (TRSRY.reserveDebt(token_, address(this)) != 0) {
+            // No risk of underflow since `repayDebt` handles scenarios where the
+            // repayment amount is greater than the debt. In such cases, all 
+            // tokens are transferred and the debt is cleared.
             token_.approve(address(TRSRY), amount_);
             TRSRY.repayDebt(address(this), token_, amount_);
         }
