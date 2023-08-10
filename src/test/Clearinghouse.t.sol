@@ -15,18 +15,16 @@ import {RolesAdmin, Kernel, Actions} from "olympus-v3/policies/RolesAdmin.sol";
 import {OlympusRoles, ROLESv1} from "olympus-v3/modules/ROLES/OlympusRoles.sol";
 import {OlympusMinter, MINTRv1} from "olympus-v3/modules/MINTR/OlympusMinter.sol";
 import {OlympusTreasury, TRSRYv1} from "olympus-v3/modules/TRSRY/OlympusTreasury.sol";
-//import {Actions} from "olympus-v3/Kernel.sol";
 
-import {ClearingHouse, Cooler, CoolerFactory, CoolerCallback} from "src/ClearingHouse.sol";
-//import {Cooler, Loan, Request} from "src/Cooler.sol";
+import {Clearinghouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearinghouse.sol";
 
-// Tests for ClearingHouse
+// Tests for Clearinghouse
 //
-// ClearingHouse Setup and Permissions.
+// Clearinghouse Setup and Permissions.
 // [X] configureDependencies
 // [X] requestPermissions
 //
-// ClearingHouse Functions
+// Clearinghouse Functions
 // [X] rebalance
 //     [X] can't rebalance faster than the funding cadence.
 //     [X] Treasury approvals for the clearing house are correct.
@@ -60,7 +58,7 @@ import {ClearingHouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearing
 ///      DAI values everytime we convert between them. This is because no external
 ///      DAI is being added to the sDAI vault, so the exchange rate is 1:1. This
 ///      does not cause any issues with our testing.
-contract ClearingHouseTest is Test {
+contract ClearinghouseTest is Test {
     MockOhm internal ohm;
     MockERC20 internal gohm;
     MockERC20 internal dai;
@@ -71,7 +69,7 @@ contract ClearingHouseTest is Test {
     OlympusMinter internal MINTR;
     OlympusTreasury internal TRSRY;
     RolesAdmin internal rolesAdmin;
-    ClearingHouse internal clearinghouse;
+    Clearinghouse internal clearinghouse;
     CoolerFactory internal factory;
     Cooler internal testCooler;
 
@@ -100,7 +98,7 @@ contract ClearingHouseTest is Test {
         MINTR = new OlympusMinter(kernel, address(ohm));
         ROLES = new OlympusRoles(kernel);
 
-        clearinghouse = new ClearingHouse(
+        clearinghouse = new Clearinghouse(
             address(gohm),
             address(staking),
             address(sdai),
@@ -230,15 +228,15 @@ contract ClearingHouseTest is Test {
 
         // Clearinghouse only accepts gOHM-DAI
         Cooler badCooler1 = Cooler(factory.generateCooler(wagmi, ngmi));
-        vm.expectRevert(ClearingHouse.BadEscrow.selector);
+        vm.expectRevert(Clearinghouse.BadEscrow.selector);
         clearinghouse.lendToCooler(badCooler1, 1e18);
         // Clearinghouse only accepts gOHM-DAI
         Cooler badCooler2 = Cooler(factory.generateCooler(gohm, ngmi));
-        vm.expectRevert(ClearingHouse.BadEscrow.selector);
+        vm.expectRevert(Clearinghouse.BadEscrow.selector);
         clearinghouse.lendToCooler(badCooler2, 1e18);
         // Clearinghouse only accepts gOHM-DAI
         Cooler badCooler3 = Cooler(factory.generateCooler(wagmi, dai));
-        vm.expectRevert(ClearingHouse.BadEscrow.selector);
+        vm.expectRevert(Clearinghouse.BadEscrow.selector);
         clearinghouse.lendToCooler(badCooler3, 1e18);
     }
     
@@ -420,7 +418,7 @@ contract ClearingHouseTest is Test {
 
     function testRevert_defund_gohm() public {
         vm.prank(overseer);
-        vm.expectRevert(ClearingHouse.OnlyBurnable.selector);
+        vm.expectRevert(Clearinghouse.OnlyBurnable.selector);
         clearinghouse.defund(gohm, 1e24);
     }
 
@@ -513,7 +511,7 @@ contract ClearingHouseTest is Test {
         // Claim defaulted loans
         vm.prank(overseer);
         // Both input arrays must have the same length
-        vm.expectRevert(ClearingHouse.LengthDiscrepancy.selector);
+        vm.expectRevert(Clearinghouse.LengthDiscrepancy.selector);
         clearinghouse.claimDefaulted(coolers, ids);
     }
 }
