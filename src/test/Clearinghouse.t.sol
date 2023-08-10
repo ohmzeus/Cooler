@@ -270,6 +270,7 @@ contract ClearinghouseTest is Test {
 
         // Cache DAI balance and extra interest to be paid
         uint256 initDaiUser = dai.balanceOf(user);
+        uint256 initReceivables = clearinghouse.receivables();
         uint256 interestExtra = cooler.interestFor(initLoan.amount, clearinghouse.INTEREST_RATE(), clearinghouse.DURATION());
         // Ensure user has enough collateral to roll the loan
         uint256 gohmExtra = cooler.newCollateralFor(loanID);
@@ -288,6 +289,8 @@ contract ClearinghouseTest is Test {
         assertEq(newLoan.unclaimed, initLoan.unclaimed);
         assertEq(newLoan.collateral, initLoan.collateral + gohmExtra);
         assertEq(newLoan.expiry, initLoan.expiry + initLoan.request.duration);
+        // Check: clearinghouse storage
+        assertEq(clearinghouse.receivables(), initReceivables + interestExtra);
     }
 
     function testFuzz_rollLoan_repayingInterest(uint256 loanAmount_) public {
@@ -304,6 +307,7 @@ contract ClearinghouseTest is Test {
         vm.startPrank(user);
         // Cache DAI balance and extra interest to be paid in the future
         uint256 initDaiUser = dai.balanceOf(user);
+        uint256 initReceivables = clearinghouse.receivables();
         // Repay the interest of the loan (interest = owed debt - borrowed amount)
         uint256 repay = initLoan.amount - initLoan.request.amount;
         dai.approve(address(cooler), repay);
@@ -323,6 +327,8 @@ contract ClearinghouseTest is Test {
         assertEq(newLoan.unclaimed, initLoan.unclaimed);
         assertEq(newLoan.collateral, initLoan.collateral);
         assertEq(newLoan.expiry, initLoan.expiry + initLoan.request.duration);
+        // Check: clearinghouse storage
+        assertEq(clearinghouse.receivables(), initReceivables);
     }
 
     // --- REBALANCE TREASURY --------------------------------------------

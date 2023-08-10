@@ -114,8 +114,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Validate cooler collateral and debt tokens.
         if (cooler_.collateral() != gOHM || cooler_.debt() != dai) revert BadEscrow();
 
-        // Compute and access collateral.
+        // Compute and access collateral. Increment loan receivables.
         uint256 collateral = cooler_.collateralFor(amount_, LOAN_TO_COLLATERAL);
+        receivables += debtForCollateral(collateral);
         gOHM.transferFrom(msg.sender, address(this), collateral);
 
         // Create loan request.
@@ -126,9 +127,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         sDai.withdraw(amount_, address(this), address(this));
         dai.approve(address(cooler_), amount_);
         uint256 loanID = cooler_.clearRequest(reqID, true, true);
-
-        // Increment loan receivables.
-        receivables += debtForCollateral(collateral);
         
         return loanID;
     }
@@ -146,6 +144,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Provide rollover terms.
         cooler_.provideNewTermsForRoll(loanID_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
+        // Increment loan receivables by applying the interest to the previous debt.
+        uint256 newDebt = cooler_.interestFor(
+            cooler_.getLoan(loanID_).amount,
+            INTEREST_RATE,              
+            DURATION
+        );
+        receivables += newDebt;
+    
+
         // Collect applicable new collateral from user.
         uint256 newCollateral = cooler_.newCollateralFor(loanID_);
         if (newCollateral > 0) {
@@ -155,9 +162,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Roll loan.
         cooler_.rollLoan(loanID_);
-
-        // Increment loan receivables.
-        receivables += debtForCollateral(newCollateral);
     }
 
     /// @notice Batch several default claims to save gas.
