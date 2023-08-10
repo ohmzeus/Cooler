@@ -194,14 +194,13 @@ contract ClearinghouseTest is Test {
     }
 
     function test_requestPermissions() public {
-        Permissions[] memory expectedPerms = new Permissions[](5);
+        Permissions[] memory expectedPerms = new Permissions[](4);
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
         Keycode MINTR_KEYCODE = toKeycode("MINTR");
         expectedPerms[0] = Permissions(TRSRY_KEYCODE, TRSRY.setDebt.selector);
-        expectedPerms[1] = Permissions(TRSRY_KEYCODE, TRSRY.repayDebt.selector);
-        expectedPerms[2] = Permissions(TRSRY_KEYCODE, TRSRY.incurDebt.selector);
-        expectedPerms[3] = Permissions(TRSRY_KEYCODE, TRSRY.increaseDebtorApproval.selector);
-        expectedPerms[4] = Permissions(MINTR_KEYCODE, MINTR.burnOhm.selector);
+        expectedPerms[1] = Permissions(TRSRY_KEYCODE, TRSRY.increaseWithdrawApproval.selector);
+        expectedPerms[2] = Permissions(TRSRY_KEYCODE, TRSRY.withdrawReserves.selector);
+        expectedPerms[3] = Permissions(MINTR_KEYCODE, MINTR.burnOhm.selector);
         
         Permissions[] memory perms = clearinghouse.requestPermissions();
         // Check: permission storage
@@ -336,9 +335,10 @@ contract ClearinghouseTest is Test {
         // Burn 1 mil from clearinghouse to simulate assets being lent
         vm.prank(address(clearinghouse));
         sdai.withdraw(oneMillion, address(0x0), address(clearinghouse));
-
-        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH - oneMillion, "DAI balance CH");
-        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH - sdaiOneMillion, "sDAI balance CH");
+        
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH - oneMillion, "init DAI balance CH");
+        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH - sdaiOneMillion, "init sDAI balance CH");
+        assertEq(TRSRY.reserveDebt(dai, address(clearinghouse)), clearinghouse.FUND_AMOUNT(), "init DAI debt CH");
         // Test if clearinghouse pulls in 1 mil DAI from treasury
         uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
         uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
@@ -348,6 +348,7 @@ contract ClearinghouseTest is Test {
         assertEq(daiInitTRSRY - oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
         assertEq(sdaiInitTRSRY - sdaiOneMillion, sdai.balanceOf(address(TRSRY)), "sDAI balance TRSRY");
         assertEq(clearinghouse.FUND_AMOUNT(), sdai.maxWithdraw(address(clearinghouse)), "FUND_AMOUNT");
+        assertEq(clearinghouse.FUND_AMOUNT() + oneMillion, TRSRY.reserveDebt(dai, address(clearinghouse)), "DAI debt CH");
     }
 
     function test_rebalance_returnFunds() public {
@@ -359,9 +360,10 @@ contract ClearinghouseTest is Test {
         // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
         dai.mint(address(clearinghouse), oneMillion);
         clearinghouse.sweepIntoDSR();
-
-        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH + oneMillion, "DAI balance CH");
-        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH + sdaiOneMillion, "sDAI balance CH");
+        
+        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH + oneMillion, "init DAI balance CH");
+        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH + sdaiOneMillion, "init sDAI balance CH");
+        assertEq(TRSRY.reserveDebt(dai, address(clearinghouse)), clearinghouse.FUND_AMOUNT(), "init DAI debt CH");
 
         uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
         uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
@@ -371,6 +373,7 @@ contract ClearinghouseTest is Test {
         assertEq(daiInitTRSRY + oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
         assertEq(sdaiInitTRSRY + sdaiOneMillion, sdai.balanceOf(address(TRSRY)), "sDAI balance TRSRY");
         assertEq(clearinghouse.FUND_AMOUNT(), sdai.maxWithdraw(address(clearinghouse)), "FUND_AMOUNT");
+        assertEq(clearinghouse.FUND_AMOUNT() - oneMillion, TRSRY.reserveDebt(dai, address(clearinghouse)), "DAI debt CH");
     }
 
     function testRevert_rebalance_early() public {
