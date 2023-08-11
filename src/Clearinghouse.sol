@@ -165,8 +165,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     /// @notice Batch several default claims to save gas.
     ///         The elements on both arrays must be paired based on their index.
-    /// @param coolers_ Contracts where the default must be claimed.
-    /// @param loans_ IDs of the defaulted loans.
+    /// @dev    Implements an auction style reward system that linearly increases up to a max reward.
+    /// @param  coolers_ Array of contracts where the default must be claimed.
+    /// @param  loans_ Array of defaulted loan ids.
     function claimDefaulted(address[] calldata coolers_, uint256[] calldata loans_) external {
         uint256 loans = loans_.length;
         if (loans != coolers_.length) revert LengthDiscrepancy();
@@ -174,11 +175,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 totalDebt;
         uint256 totalInterest;
         uint256 totalCollateral;
+        uint256 keeperRewards;
         for (uint256 i=0; i < loans;) {
             // Validate that cooler was deployed by the trusted factory.
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
             
-            (uint256 debt, uint256 collateral) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
+            (uint256 debt, uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
             uint256 interest = interestFromDebt(debt);
             unchecked {
                 // Cannot overflow due to max supply limits for both tokens
@@ -188,6 +190,13 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
                 // There will not exist more than 2**256 loans
                 ++i;
             }
+
+            // Calculate the reward for claiming defaults.
+            // Limited to 5% of the collateral so that it is non-dillutive for OHM holders.
+            uint256 maxReward = collateral * 5e16 / 1e18;
+            keeperRewards = (elapsed < 3 days)
+                ? keeperRewards + maxReward * elapsed / 3 days
+                : keeperRewards + maxReward;
         }
 
         // Decrement loan receivables.
@@ -202,9 +211,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
                 ? outstandingDebt - (totalDebt - totalInterest)
                 : 0
         });
+
+        // Reward keeper.
+        gOHM.transfer(msg.sender, keeperRewards);
         // Unstake and burn the collateral of the defaulted loans.
-        gOHM.approve(address(staking), totalCollateral);
-        MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral, false, false));
+        gOHM.approve(address(staking), totalCollateral - keeperRewards);
+        MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral - keeperRewards, false, false));
     }
 
     // --- CALLBACKS -----------------------------------------------------

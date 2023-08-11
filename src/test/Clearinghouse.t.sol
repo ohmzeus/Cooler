@@ -131,8 +131,6 @@ contract ClearinghouseTest is Test {
 
         testCooler = Cooler(factory.generateCooler(gohm, dai));
 
-        gohm.mint(overseer, mintAmount);
-
         // Skip 1 week ahead to allow rebalances
         skip(1 weeks);
 
@@ -465,19 +463,19 @@ contract ClearinghouseTest is Test {
 
     // --- CLAIM DEFAULTED ----------------------------------
 
-    function testFuzz_claimDefaulted(uint256 loanAmount_) public {
+    function testFuzz_claimDefaulted(uint256 loanAmount_, uint256 elapsedTime_) public {
         // Loan amount cannot exceed Clearinghouse funding
         // Loan amount must exceed 0.0001 gOHM, so that repaying the interest decollaterizes de loan.
-        uint256 loanAmount1_ = bound(loanAmount_, 1e14, clearinghouse.FUND_AMOUNT() / 3);
-        uint256 loanAmount2_ = 2 * loanAmount1_;
+        loanAmount_ = bound(loanAmount_, 1e14, clearinghouse.FUND_AMOUNT() / 3);
+        elapsedTime_ = bound(elapsedTime_, 1, 2**32);
 
-        (Cooler cooler1, uint256 gohmNeeded1, uint256 loanID1) = _createLoanForUser(loanAmount1_);
-        (Cooler cooler2, uint256 gohmNeeded2, uint256 loanID2) = _createLoanForUser(loanAmount2_);
+        (Cooler cooler1, uint256 gohmNeeded1, uint256 loanID1) = _createLoanForUser(loanAmount_);
+        (Cooler cooler2, uint256 gohmNeeded2, uint256 loanID2) = _createLoanForUser(loanAmount_ * 2);
         Cooler.Loan memory initLoan1 = cooler1.getLoan(loanID1);
         Cooler.Loan memory initLoan2 = cooler2.getLoan(loanID2);
 
         // Move forward after both loans have ended
-        _skip(clearinghouse.DURATION() + 1);
+        _skip(clearinghouse.DURATION() + elapsedTime_);
 
         // Cache clearinghouse receivables and TRSRY debt
         uint256 initReceivables = clearinghouse.receivables();
@@ -485,7 +483,7 @@ contract ClearinghouseTest is Test {
 
         // Simulate unstaking outcome after defaults
         ohm.mint(address(clearinghouse), gohmNeeded1 + gohmNeeded2);
-
+        {
         uint256[] memory ids = new uint256[](2);
         address[] memory coolers = new address[](2);
         ids[0] = loanID1;
@@ -495,17 +493,29 @@ contract ClearinghouseTest is Test {
         // Claim defaulted loans
         vm.prank(overseer);
         clearinghouse.claimDefaulted(coolers, ids);
-
+        }
+        {
         uint256 daiReceivables = initLoan1.amount + initLoan2.amount;
         uint256 sdaiDebt = sdai.previewDeposit(daiReceivables - clearinghouse.interestFromDebt(daiReceivables));
         // Check: clearinghouse storage
         assertEq(clearinghouse.receivables(), initReceivables > daiReceivables ? initReceivables - daiReceivables : 0);
         // Check: TRSRY storage
         assertApproxEqAbs(TRSRY.reserveDebt(sdai, address(clearinghouse)), initDebt > sdaiDebt ? initDebt - sdaiDebt : 0, 1e4);
+        }
+        {
+        uint256 keeperRewards = gohm.balanceOf(overseer);
+        uint256 maxReward = (gohmNeeded1 + gohmNeeded2) * 5e16 / 1e18;
         // After defaults the clearing house keeps the collateral (which is supposed to be unstaked and burned)
-        assertEq(gohm.balanceOf(address(clearinghouse)), gohmNeeded1 + gohmNeeded2, "gOHM balance");
-        // Check: OHM supply = 0 (only minted before burning)
-        assertEq(ohm.totalSupply(), 0);
+        assertEq(gohm.balanceOf(address(clearinghouse)), gohmNeeded1 + gohmNeeded2 - keeperRewards, "gOHM balance");
+        // Check: OHM supply = keeper rewards (only minted before burning)
+        assertEq(ohm.totalSupply(), keeperRewards, "OHM supply");
+        // Check: keeper rewards can't exceed 5% of defaulted collateral
+        if (elapsedTime_>= 3 days) {
+            assertApproxEqAbs(keeperRewards, maxReward, 1e4, "keeper rewards <= 5% collateral");
+        } else {
+            assertApproxEqAbs(keeperRewards, maxReward * elapsedTime_ / 3 days, 1e4, "keeper rewards <= auction");
+        }
+        }
     }
 
     function testRevert_claimDefaulted_inputLengthDiscrepancy() public {
