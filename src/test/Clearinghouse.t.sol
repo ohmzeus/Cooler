@@ -452,13 +452,18 @@ contract ClearinghouseTest is Test {
         );
     }
 
-    function testRevert_rebalance_deactivated() public {
+    function test_rebalance_deactivated_returnFunds() public {
         vm.prank(overseer);
         clearinghouse.emergencyShutdown();
 
-        // Cannot rebalance when the contract is deactivated.
-        bool canRebalance = clearinghouse.rebalance();
-        assertEq(canRebalance, false);
+        // Simulate loan repayments
+        uint256 oneMillion = 1e24;
+        deal(address(sdai), address(clearinghouse), oneMillion);
+        uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
+        // Rebalances only defund when the contract is deactivated.
+        clearinghouse.rebalance();
+        assertEq(sdai.balanceOf(address(clearinghouse)), 0);
+        assertEq(sdai.balanceOf(address(TRSRY)), sdaiInitTRSRY + oneMillion);
     }
 
     function testRevert_rebalance_early() public {

@@ -255,11 +255,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     ///         function several times won't impact the funds controlled by the contract.
     ///         If the emergency shutdown is triggered, a rebalance will send funds back to
     ///         the treasury.
+    /// @return False if too early to rebalance. Otherwise, true.
     function rebalance() public returns (bool) {
         // If the contract is deactivated, defund.
         uint256 maxFundAmount = active ? FUND_AMOUNT : 0;        
         // Update funding schedule if necessary.
-        if (fundTime > block.timestamp) return;
+        if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
         uint256 daiBalance = sdai.maxWithdraw(address(this));
@@ -300,7 +301,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             sdai.approve(address(TRSRY), sdaiAmount);
             sdai.transfer(address(TRSRY), sdaiAmount);
         }
-        return;
+        return true;
     }
 
     /// @notice Sweep excess DAI into vault.
