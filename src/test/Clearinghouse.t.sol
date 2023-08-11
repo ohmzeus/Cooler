@@ -37,6 +37,12 @@ import {Clearinghouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearing
 //     [X] only "cooler_overseer" can call.
 //     [X] cannot defund gOHM.
 //     [X] sends input ERC20 token back to the Treasury.
+// [X] emergencyShutdown
+//     [X] only "emergency_shutdown" can call.
+//     [X] deactivates and defunds.
+// [X] restartAfterShutdown
+//     [X] only "cooler_overseer" can call.
+//     [X] reactivates.
 // [X] lendToCooler
 //     [X] only lend to coolers issued by coolerFactory.
 //     [X] only collateral = gOHM + only debt = DAI.
@@ -504,6 +510,12 @@ contract ClearinghouseTest is Test {
         clearinghouse.defund(gohm, 1e24);
     }
 
+    function testRevert_defund_onlyRole() public {
+        vm.prank(others);
+        vm.expectRevert();
+        clearinghouse.defund(gohm, 1e24);
+    }
+
     // --- EMERGENCY SHUTDOWN CLEARINGHOUSE ------------------------------
 
     function test_emergencyShutdown() public {
@@ -514,6 +526,27 @@ contract ClearinghouseTest is Test {
         clearinghouse.emergencyShutdown();
         assertEq(clearinghouse.active(), false);
         assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + sdaiCHBal);
+    }
+
+    function testRevert_emergencyShutdown_onlyRole() public {
+        vm.prank(others);
+        vm.expectRevert();
+        clearinghouse.emergencyShutdown();
+    }
+
+    function test_restartAfterShutdown() public {
+        vm.startPrank(overseer);
+        clearinghouse.emergencyShutdown();
+        assertEq(clearinghouse.active(), false);
+        clearinghouse.restartAfterShutdown();
+        assertEq(clearinghouse.active(), true);
+        vm.stopPrank();
+    }
+
+    function testRevert_restartAfterShutdown_onlyRole() public {
+        vm.prank(others);
+        vm.expectRevert();
+        clearinghouse.restartAfterShutdown();
     }
 
     // --- CALLBACKS: ON LOAN REPAYMENT ----------------------------------
