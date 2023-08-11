@@ -253,19 +253,22 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @dev    Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
     ///         If several rebalances are available (because some were missed), calling this
     ///         function several times won't impact the funds controlled by the contract.
-    /// @return False if the contract is deactivated or if it is too early to rebalance.
-    ///         Otherwise, true.
+    ///         If the emergency shutdown is triggered, a rebalance will send funds back to
+    ///         the treasury.
     function rebalance() public returns (bool) {
-        if (!active || fundTime > block.timestamp) return false;
+        // If the contract is deactivated, defund.
+        uint256 maxFundAmount = active ? FUND_AMOUNT : 0;        
+        // Update funding schedule if necessary.
+        if (fundTime > block.timestamp) return;
         fundTime += FUND_CADENCE;
 
         uint256 daiBalance = sdai.maxWithdraw(address(this));
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         // Rebalance funds on hand with treasury's reserves.
-        if (daiBalance < FUND_AMOUNT) {
+        if (daiBalance < maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when funding.
-            uint256 fundAmount = FUND_AMOUNT - daiBalance;
+            uint256 fundAmount = maxFundAmount - daiBalance;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
@@ -281,10 +284,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             // Sweep DAI into DSR if necessary.
             uint256 idle = dai.balanceOf(address(this));
             if (idle != 0) _sweepIntoDSR(idle);
-        } else if (daiBalance > FUND_AMOUNT) {
+        } else if (daiBalance > maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
-            uint256 defundAmount = daiBalance - FUND_AMOUNT;
+            uint256 defundAmount = daiBalance - maxFundAmount;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
@@ -297,7 +300,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             sdai.approve(address(TRSRY), sdaiAmount);
             sdai.transfer(address(TRSRY), sdaiAmount);
         }
-        return true;
+        return;
     }
 
     /// @notice Sweep excess DAI into vault.
