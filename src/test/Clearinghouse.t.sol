@@ -26,6 +26,7 @@ import {Clearinghouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearing
 //
 // Clearinghouse Functions
 // [X] rebalance
+//     [X] can't if the contract is deactivated.
 //     [X] can't rebalance faster than the funding cadence.
 //     [X] Treasury approvals for the clearing house are correct.
 //     [X] if necessary, sends excess DSR funds back to the Treasury.
@@ -116,6 +117,7 @@ contract ClearinghouseTest is Test {
 
         /// Configure access control
         rolesAdmin.grantRole("cooler_overseer", overseer);
+        rolesAdmin.grantRole("emergency_shutdown", overseer);
 
         // Setup clearinghouse initial conditions
         uint mintAmount = 200_000_000e18; // Init treasury with 200 million
@@ -444,6 +446,15 @@ contract ClearinghouseTest is Test {
         );
     }
 
+    function testRevert_rebalance_deactivated() public {
+        vm.prank(overseer);
+        clearinghouse.emergencyShutdown();
+
+        // Cannot rebalance when the contract is deactivated.
+        bool canRebalance = clearinghouse.rebalance();
+        assertEq(canRebalance, false);
+    }
+
     function testRevert_rebalance_early() public {
         bool canRebalance;
         // Rebalance to be up-to-date with the FUND_CADENCE.
@@ -479,15 +490,30 @@ contract ClearinghouseTest is Test {
 
     function test_defund() public {
         uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
+        uint256 initDebtCH = TRSRY.reserveDebt(dai, address(clearinghouse));
+
         vm.prank(overseer);
         clearinghouse.defund(sdai, 1e24);
         assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + 1e24);
+        assertEq(TRSRY.reserveDebt(dai, address(clearinghouse)), initDebtCH - sdai.previewRedeem(1e24));
     }
 
     function testRevert_defund_gohm() public {
         vm.prank(overseer);
         vm.expectRevert(Clearinghouse.OnlyBurnable.selector);
         clearinghouse.defund(gohm, 1e24);
+    }
+
+    // --- EMERGENCY SHUTDOWN CLEARINGHOUSE ------------------------------
+
+    function test_emergencyShutdown() public {
+        uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
+        uint256 sdaiCHBal = sdai.balanceOf(address(clearinghouse));
+
+        vm.prank(overseer);
+        clearinghouse.emergencyShutdown();
+        assertEq(clearinghouse.active(), false);
+        assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + sdaiCHBal);
     }
 
     // --- CALLBACKS: ON LOAN REPAYMENT ----------------------------------

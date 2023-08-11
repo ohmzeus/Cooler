@@ -52,10 +52,16 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     uint256 public constant FUND_CADENCE = 7 days;              // One week
     uint256 public constant FUND_AMOUNT = 18_000_000e18;        // 18 million
 
-    uint256 public fundTime;     // Timestamp at which rebalancing can occur.
-    uint256 public receivables;  // Outstanding loan receivables.
-                                 // Incremented when a loan is made or rolled.
-                                 // Decremented when a loan is repaid or collateral is burned.
+    // --- STATE VARIABLES -------------------------------------------
+
+    /// @notice determines whether the contract can be funded or not.
+    bool public active;
+    /// @notice timestamp at which the next rebalance can occur.
+    uint256 public fundTime;
+    /// @notice outstanding loan receivables.
+    /// Incremented when a loan is made or rolled.
+    /// Decremented when a loan is repaid or collateral is burned.
+    uint256 public receivables;
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -70,7 +76,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         staking = IStaking(staking_);
         sdai = ERC4626(sdai_);
         dai = ERC20(sdai.asset());
-        // Initialize funding schedule.
+        
+        // Initialize the contract and its funding schedule.
+        active = true;
         fundTime = block.timestamp;
     }
 
@@ -245,9 +253,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @dev    Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
     ///         If several rebalances are available (because some were missed), calling this
     ///         function several times won't impact the funds controlled by the contract.
-    /// @return False if too early to rebalance. Otherwise, true.
+    /// @return False if the contract is deactivated or if it is too early to rebalance.
+    ///         Otherwise, true.
     function rebalance() public returns (bool) {
-        if (fundTime > block.timestamp) return false;
+        if (!active || fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
         uint256 daiBalance = sdai.maxWithdraw(address(this));
@@ -306,7 +315,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Return funds to treasury.
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
-    function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
+    function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
         if (token_ == sdai) {
             // Since users loans are denominated in DAI, the clearinghouse
@@ -330,6 +339,24 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         }
         
         token_.transfer(address(TRSRY), amount_);
+    }
+
+    /// @notice Deactivate the contract and return funds to treasury.
+    function emergencyShutdown() external onlyRole("emergency_shutdown") {
+        active = false;
+
+        // If necessary, defund sDAI.
+        uint256 sdaiBalance = sdai.balanceOf(address(this));
+        if (sdaiBalance != 0) defund(sdai, sdaiBalance);
+
+        // If necessary, defund DAI.
+        uint256 daiBalance = dai.balanceOf(address(this));
+        if (daiBalance != 0) defund(dai, daiBalance);
+    }
+
+    /// @notice Reactivate the contract.
+    function restartAfterShutdown() external onlyRole("cooler_overseer") {
+        active = true;
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
