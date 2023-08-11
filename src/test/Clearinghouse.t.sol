@@ -42,17 +42,17 @@ import {Clearinghouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearing
 //     [x] user and cooler new gOHM balances are correct.
 //     [x] user and cooler new DAI balances are correct.
 // [X] rollLoan
+//     [X] only roll coolers issued by coolerFactory.
 //     [X] roll by adding more collateral.
 //     [X] roll by paying the interest.
 //     [X] user and cooler new gOHM balances are correct.
 // [X] onRepay
 //     [X] only coolers issued by coolerFactory can call.
 //     [X] receivables are updated.
-// [ ] onDefault
+// [X] claimDefaulted
 //     [X] only coolers issued by coolerFactory can call.
 //     [X] receivables are updated.
 //     [X] OHM supply is properly burnt.
-
 
 /// @dev Although there is sDAI in the treasury, the sDAI will be equal to
 ///      DAI values everytime we convert between them. This is because no external
@@ -118,7 +118,7 @@ contract ClearinghouseTest is Test {
         rolesAdmin.grantRole("cooler_overseer", overseer);
 
         // Setup clearinghouse initial conditions
-        uint mintAmount = 200_000_000e18;  // Init treasury with 200 million
+        uint mintAmount = 200_000_000e18; // Init treasury with 200 million
         dai.mint(address(TRSRY), mintAmount);
         // Deposit all reserves into the DSR
         vm.startPrank(address(TRSRY));
@@ -136,7 +136,7 @@ contract ClearinghouseTest is Test {
 
         // Initial funding of clearinghouse is equal to FUND_AMOUNT
         assertEq(sdai.maxWithdraw(address(clearinghouse)), clearinghouse.FUND_AMOUNT());
-        
+
         // Fund others so that TRSRY is not the only with sDAI shares
         dai.mint(others, mintAmount * 33);
         vm.startPrank(others);
@@ -155,7 +155,9 @@ contract ClearinghouseTest is Test {
         gohm.approve(address(clearinghouse), gohmAmount_);
     }
 
-    function _createLoanForUser(uint256 loanAmount_) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
+    function _createLoanForUser(
+        uint256 loanAmount_
+    ) internal returns (Cooler cooler, uint256 gohmNeeded, uint256 loanID) {
         // Create the Cooler
         vm.prank(user);
         cooler = Cooler(factory.generateCooler(gohm, dai));
@@ -176,7 +178,7 @@ contract ClearinghouseTest is Test {
     }
 
     // --- SETUP, DEPENDENCIES, AND PERMISSIONS --------------------------
-    
+
     function test_configureDependencies() public {
         Keycode[] memory expectedDeps = new Keycode[](3);
         expectedDeps[0] = toKeycode("TRSRY");
@@ -199,7 +201,7 @@ contract ClearinghouseTest is Test {
         expectedPerms[1] = Permissions(TRSRY_KEYCODE, TRSRY.increaseWithdrawApproval.selector);
         expectedPerms[2] = Permissions(TRSRY_KEYCODE, TRSRY.withdrawReserves.selector);
         expectedPerms[3] = Permissions(MINTR_KEYCODE, MINTR.burnOhm.selector);
-        
+
         Permissions[] memory perms = clearinghouse.requestPermissions();
         // Check: permission storage
         assertEq(perms.length, expectedPerms.length);
@@ -237,7 +239,7 @@ contract ClearinghouseTest is Test {
         vm.expectRevert(Clearinghouse.BadEscrow.selector);
         clearinghouse.lendToCooler(badCooler3, 1e18);
     }
-    
+
     function testFuzz_lendToCooler(uint256 loanAmount_) public {
         // Loan amount cannot exceed Clearinghouse funding
         loanAmount_ = bound(loanAmount_, 0, clearinghouse.FUND_AMOUNT());
@@ -263,12 +265,16 @@ contract ClearinghouseTest is Test {
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward to half duration of the loan
-        _skip(clearinghouse.DURATION()/2);
+        _skip(clearinghouse.DURATION() / 2);
 
         // Cache DAI balance and extra interest to be paid
         uint256 initDaiUser = dai.balanceOf(user);
         uint256 initReceivables = clearinghouse.receivables();
-        uint256 interestExtra = cooler.interestFor(initLoan.amount, clearinghouse.INTEREST_RATE(), clearinghouse.DURATION());
+        uint256 interestExtra = cooler.interestFor(
+            initLoan.amount,
+            clearinghouse.INTEREST_RATE(),
+            clearinghouse.DURATION()
+        );
         // Ensure user has enough collateral to roll the loan
         uint256 gohmExtra = cooler.newCollateralFor(loanID);
         _fundUser(gohmExtra);
@@ -299,7 +305,7 @@ contract ClearinghouseTest is Test {
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward to half duration of the loan
-        _skip(clearinghouse.DURATION()/2);
+        _skip(clearinghouse.DURATION() / 2);
 
         vm.startPrank(user);
         // Cache DAI balance and extra interest to be paid in the future
@@ -328,6 +334,16 @@ contract ClearinghouseTest is Test {
         assertEq(clearinghouse.receivables(), initReceivables);
     }
 
+    function testRevert_rollLoan_NotFromFactory() public {
+        CoolerFactory maliciousFactory = new CoolerFactory();
+        Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
+
+        // Coolers not created by the CoolerFactory could be malicious.
+        vm.prank(others);
+        vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
+        clearinghouse.rollLoan(maliciousCooler, 0);
+    }
+
     // --- REBALANCE TREASURY --------------------------------------------
 
     function test_rebalance_pullFunds() public {
@@ -339,10 +355,22 @@ contract ClearinghouseTest is Test {
         // Burn 1 mil from clearinghouse to simulate assets being lent
         vm.prank(address(clearinghouse));
         sdai.withdraw(oneMillion, address(0x0), address(clearinghouse));
-        
-        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH - oneMillion, "init DAI balance CH");
-        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH - sdaiOneMillion, "init sDAI balance CH");
-        assertEq(TRSRY.reserveDebt(dai, address(clearinghouse)), clearinghouse.FUND_AMOUNT(), "init DAI debt CH");
+
+        assertEq(
+            sdai.maxWithdraw(address(clearinghouse)),
+            daiInitCH - oneMillion,
+            "init DAI balance CH"
+        );
+        assertEq(
+            sdai.balanceOf(address(clearinghouse)),
+            sdaiInitCH - sdaiOneMillion,
+            "init sDAI balance CH"
+        );
+        assertEq(
+            TRSRY.reserveDebt(dai, address(clearinghouse)),
+            clearinghouse.FUND_AMOUNT(),
+            "init DAI debt CH"
+        );
         // Test if clearinghouse pulls in 1 mil DAI from treasury
         uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
         uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
@@ -350,9 +378,21 @@ contract ClearinghouseTest is Test {
         clearinghouse.rebalance();
 
         assertEq(daiInitTRSRY - oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
-        assertEq(sdaiInitTRSRY - sdaiOneMillion, sdai.balanceOf(address(TRSRY)), "sDAI balance TRSRY");
-        assertEq(clearinghouse.FUND_AMOUNT(), sdai.maxWithdraw(address(clearinghouse)), "FUND_AMOUNT");
-        assertEq(clearinghouse.FUND_AMOUNT() + oneMillion, TRSRY.reserveDebt(dai, address(clearinghouse)), "DAI debt CH");
+        assertEq(
+            sdaiInitTRSRY - sdaiOneMillion,
+            sdai.balanceOf(address(TRSRY)),
+            "sDAI balance TRSRY"
+        );
+        assertEq(
+            clearinghouse.FUND_AMOUNT(),
+            sdai.maxWithdraw(address(clearinghouse)),
+            "FUND_AMOUNT"
+        );
+        assertEq(
+            clearinghouse.FUND_AMOUNT() + oneMillion,
+            TRSRY.reserveDebt(dai, address(clearinghouse)),
+            "DAI debt CH"
+        );
     }
 
     function test_rebalance_returnFunds() public {
@@ -364,10 +404,22 @@ contract ClearinghouseTest is Test {
         // Mint 1 million to clearinghouse and sweep to simulate assets being repaid
         dai.mint(address(clearinghouse), oneMillion);
         clearinghouse.sweepIntoDSR();
-        
-        assertEq(sdai.maxWithdraw(address(clearinghouse)), daiInitCH + oneMillion, "init DAI balance CH");
-        assertEq(sdai.balanceOf(address(clearinghouse)), sdaiInitCH + sdaiOneMillion, "init sDAI balance CH");
-        assertEq(TRSRY.reserveDebt(dai, address(clearinghouse)), clearinghouse.FUND_AMOUNT(), "init DAI debt CH");
+
+        assertEq(
+            sdai.maxWithdraw(address(clearinghouse)),
+            daiInitCH + oneMillion,
+            "init DAI balance CH"
+        );
+        assertEq(
+            sdai.balanceOf(address(clearinghouse)),
+            sdaiInitCH + sdaiOneMillion,
+            "init sDAI balance CH"
+        );
+        assertEq(
+            TRSRY.reserveDebt(dai, address(clearinghouse)),
+            clearinghouse.FUND_AMOUNT(),
+            "init DAI debt CH"
+        );
 
         uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
         uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
@@ -375,9 +427,21 @@ contract ClearinghouseTest is Test {
         clearinghouse.rebalance();
 
         assertEq(daiInitTRSRY + oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
-        assertEq(sdaiInitTRSRY + sdaiOneMillion, sdai.balanceOf(address(TRSRY)), "sDAI balance TRSRY");
-        assertEq(clearinghouse.FUND_AMOUNT(), sdai.maxWithdraw(address(clearinghouse)), "FUND_AMOUNT");
-        assertEq(clearinghouse.FUND_AMOUNT() - oneMillion, TRSRY.reserveDebt(dai, address(clearinghouse)), "DAI debt CH");
+        assertEq(
+            sdaiInitTRSRY + sdaiOneMillion,
+            sdai.balanceOf(address(TRSRY)),
+            "sDAI balance TRSRY"
+        );
+        assertEq(
+            clearinghouse.FUND_AMOUNT(),
+            sdai.maxWithdraw(address(clearinghouse)),
+            "FUND_AMOUNT"
+        );
+        assertEq(
+            clearinghouse.FUND_AMOUNT() - oneMillion,
+            TRSRY.reserveDebt(dai, address(clearinghouse)),
+            "DAI debt CH"
+        );
     }
 
     function testRevert_rebalance_early() public {
@@ -394,7 +458,7 @@ contract ClearinghouseTest is Test {
     function test_rebalance_pastDue() public {
         // Already skipped 1 week ahead in setup. Do once more and call rebalance twice.
         skip(2 weeks);
-        for(uint i; i < 3; i++) {
+        for (uint i; i < 3; i++) {
             clearinghouse.rebalance();
         }
     }
@@ -433,11 +497,11 @@ contract ClearinghouseTest is Test {
         // Loan amount must exceed 0.0001 gOHM, so that repaying the interest decollaterizes de loan.
         loanAmount_ = bound(loanAmount_, 1e14, clearinghouse.FUND_AMOUNT());
 
-        (Cooler cooler,, uint256 loanID) = _createLoanForUser(loanAmount_);
+        (Cooler cooler, , uint256 loanID) = _createLoanForUser(loanAmount_);
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward to half duration of the loan
-        _skip(clearinghouse.DURATION()/2);
+        _skip(clearinghouse.DURATION() / 2);
 
         vm.startPrank(user);
         // Cache clearinghouse receivables
@@ -467,10 +531,12 @@ contract ClearinghouseTest is Test {
         // Loan amount cannot exceed Clearinghouse funding
         // Loan amount must exceed 0.0001 gOHM, so that repaying the interest decollaterizes de loan.
         loanAmount_ = bound(loanAmount_, 1e14, clearinghouse.FUND_AMOUNT() / 3);
-        elapsedTime_ = bound(elapsedTime_, 1, 2**32);
+        elapsedTime_ = bound(elapsedTime_, 1, 2 ** 32);
 
         (Cooler cooler1, uint256 gohmNeeded1, uint256 loanID1) = _createLoanForUser(loanAmount_);
-        (Cooler cooler2, uint256 gohmNeeded2, uint256 loanID2) = _createLoanForUser(loanAmount_ * 2);
+        (Cooler cooler2, uint256 gohmNeeded2, uint256 loanID2) = _createLoanForUser(
+            loanAmount_ * 2
+        );
         Cooler.Loan memory initLoan1 = cooler1.getLoan(loanID1);
         Cooler.Loan memory initLoan2 = cooler2.getLoan(loanID2);
 
@@ -484,37 +550,55 @@ contract ClearinghouseTest is Test {
         // Simulate unstaking outcome after defaults
         ohm.mint(address(clearinghouse), gohmNeeded1 + gohmNeeded2);
         {
-        uint256[] memory ids = new uint256[](2);
-        address[] memory coolers = new address[](2);
-        ids[0] = loanID1;
-        ids[1] = loanID2;
-        coolers[0] = address(cooler1);
-        coolers[1] = address(cooler2);        
-        // Claim defaulted loans
-        vm.prank(overseer);
-        clearinghouse.claimDefaulted(coolers, ids);
+            uint256[] memory ids = new uint256[](2);
+            address[] memory coolers = new address[](2);
+            ids[0] = loanID1;
+            ids[1] = loanID2;
+            coolers[0] = address(cooler1);
+            coolers[1] = address(cooler2);
+            // Claim defaulted loans
+            vm.prank(overseer);
+            clearinghouse.claimDefaulted(coolers, ids);
         }
         {
-        uint256 daiReceivables = initLoan1.amount + initLoan2.amount;
-        uint256 sdaiDebt = sdai.previewDeposit(daiReceivables - clearinghouse.interestFromDebt(daiReceivables));
-        // Check: clearinghouse storage
-        assertEq(clearinghouse.receivables(), initReceivables > daiReceivables ? initReceivables - daiReceivables : 0);
-        // Check: TRSRY storage
-        assertApproxEqAbs(TRSRY.reserveDebt(sdai, address(clearinghouse)), initDebt > sdaiDebt ? initDebt - sdaiDebt : 0, 1e4);
+            uint256 daiReceivables = initLoan1.amount + initLoan2.amount;
+            uint256 sdaiDebt = sdai.previewDeposit(
+                daiReceivables - clearinghouse.interestFromDebt(daiReceivables)
+            );
+            // Check: clearinghouse storage
+            assertEq(
+                clearinghouse.receivables(),
+                initReceivables > daiReceivables ? initReceivables - daiReceivables : 0
+            );
+            // Check: TRSRY storage
+            assertApproxEqAbs(
+                TRSRY.reserveDebt(sdai, address(clearinghouse)),
+                initDebt > sdaiDebt ? initDebt - sdaiDebt : 0,
+                1e4
+            );
         }
         {
-        uint256 keeperRewards = gohm.balanceOf(overseer);
-        uint256 maxReward = (gohmNeeded1 + gohmNeeded2) * 5e16 / 1e18;
-        // After defaults the clearing house keeps the collateral (which is supposed to be unstaked and burned)
-        assertEq(gohm.balanceOf(address(clearinghouse)), gohmNeeded1 + gohmNeeded2 - keeperRewards, "gOHM balance");
-        // Check: OHM supply = keeper rewards (only minted before burning)
-        assertEq(ohm.totalSupply(), keeperRewards, "OHM supply");
-        // Check: keeper rewards can't exceed 5% of defaulted collateral
-        if (elapsedTime_>= 3 days) {
-            assertApproxEqAbs(keeperRewards, maxReward, 1e4, "keeper rewards <= 5% collateral");
-        } else {
-            assertApproxEqAbs(keeperRewards, maxReward * elapsedTime_ / 3 days, 1e4, "keeper rewards <= auction");
-        }
+            uint256 keeperRewards = gohm.balanceOf(overseer);
+            uint256 maxReward = ((gohmNeeded1 + gohmNeeded2) * 5e16) / 1e18;
+            // After defaults the clearing house keeps the collateral (which is supposed to be unstaked and burned)
+            assertEq(
+                gohm.balanceOf(address(clearinghouse)),
+                gohmNeeded1 + gohmNeeded2 - keeperRewards,
+                "gOHM balance"
+            );
+            // Check: OHM supply = keeper rewards (only minted before burning)
+            assertEq(ohm.totalSupply(), keeperRewards, "OHM supply");
+            // Check: keeper rewards can't exceed 5% of defaulted collateral
+            if (elapsedTime_ >= 3 days) {
+                assertApproxEqAbs(keeperRewards, maxReward, 1e4, "keeper rewards <= 5% collateral");
+            } else {
+                assertApproxEqAbs(
+                    keeperRewards,
+                    (maxReward * elapsedTime_) / 3 days,
+                    1e4,
+                    "keeper rewards <= auction"
+                );
+            }
         }
     }
 
@@ -523,11 +607,26 @@ contract ClearinghouseTest is Test {
         address[] memory coolers = new address[](1);
         ids[0] = 12345;
         ids[1] = 67890;
-        coolers[0] = others;  
-        // Claim defaulted loans
+        coolers[0] = others;
+
         vm.prank(overseer);
         // Both input arrays must have the same length
         vm.expectRevert(Clearinghouse.LengthDiscrepancy.selector);
+        clearinghouse.claimDefaulted(coolers, ids);
+    }
+
+    function testRevert_claimDefaulted_NotFromFactory() public {
+        CoolerFactory maliciousFactory = new CoolerFactory();
+        Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
+
+        uint256[] memory ids = new uint256[](1);
+        address[] memory coolers = new address[](1);
+        ids[0] = 12345;
+        coolers[0] = address(maliciousCooler);
+
+        // Coolers not created by the CoolerFactory could be malicious.
+        vm.prank(others);
+        vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
         clearinghouse.claimDefaulted(coolers, ids);
     }
 }
