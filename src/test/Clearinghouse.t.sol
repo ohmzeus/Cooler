@@ -534,15 +534,14 @@ contract ClearinghouseTest is Test {
         elapsedTime_ = bound(elapsedTime_, 1, 2 ** 32);
 
         (Cooler cooler1, uint256 gohmNeeded1, uint256 loanID1) = _createLoanForUser(loanAmount_);
-        (Cooler cooler2, uint256 gohmNeeded2, uint256 loanID2) = _createLoanForUser(
-            loanAmount_ * 2
-        );
+        (Cooler cooler2, uint256 gohmNeeded2, uint256 loanID2) = _createLoanForUser(loanAmount_ * 2);
         Cooler.Loan memory initLoan1 = cooler1.getLoan(loanID1);
         Cooler.Loan memory initLoan2 = cooler2.getLoan(loanID2);
 
         // Move forward after both loans have ended
         _skip(clearinghouse.DURATION() + elapsedTime_);
 
+        {
         // Cache clearinghouse receivables and TRSRY debt
         uint256 initReceivables = clearinghouse.receivables();
         uint256 initDebt = TRSRY.reserveDebt(sdai, address(clearinghouse));
@@ -556,8 +555,10 @@ contract ClearinghouseTest is Test {
             ids[1] = loanID2;
             coolers[0] = address(cooler1);
             coolers[1] = address(cooler2);
+
+            deal(address(gohm), others, 0);
             // Claim defaulted loans
-            vm.prank(overseer);
+            vm.prank(others);
             clearinghouse.claimDefaulted(coolers, ids);
         }
         {
@@ -577,9 +578,9 @@ contract ClearinghouseTest is Test {
                 1e4
             );
         }
+        }
         {
-            uint256 keeperRewards = gohm.balanceOf(overseer);
-            uint256 maxReward = ((gohmNeeded1 + gohmNeeded2) * 5e16) / 1e18;
+            uint256 keeperRewards = gohm.balanceOf(others);
             // After defaults the clearing house keeps the collateral (which is supposed to be unstaked and burned)
             assertEq(
                 gohm.balanceOf(address(clearinghouse)),
@@ -588,16 +589,27 @@ contract ClearinghouseTest is Test {
             );
             // Check: OHM supply = keeper rewards (only minted before burning)
             assertEq(ohm.totalSupply(), keeperRewards, "OHM supply");
+
+            {
+            uint256 maxAuctionReward1 = gohmNeeded1 * 5e16 / 1e18;
+            uint256 maxAuctionReward2 = gohmNeeded2 * 5e16 / 1e18;
+            uint256 maxRewards = (maxAuctionReward1 < clearinghouse.MAX_REWARD())
+                ? maxAuctionReward1
+                : clearinghouse.MAX_REWARD();
+            maxRewards = (maxAuctionReward2 < clearinghouse.MAX_REWARD())
+                ? maxRewards + maxAuctionReward2
+                : maxRewards + clearinghouse.MAX_REWARD();
             // Check: keeper rewards can't exceed 5% of defaulted collateral
-            if (elapsedTime_ >= 3 days) {
-                assertApproxEqAbs(keeperRewards, maxReward, 1e4, "keeper rewards <= 5% collateral");
+            if (elapsedTime_ >= 7 days) {
+                assertApproxEqAbs(keeperRewards, maxRewards, 1e4, "rewards <= 5% collat && MAX_REWARD");
             } else {
                 assertApproxEqAbs(
                     keeperRewards,
-                    (maxReward * elapsedTime_) / 3 days,
+                    maxRewards * elapsedTime_ / 7 days,
                     1e4,
-                    "keeper rewards <= auction"
+                    "rewards <= auction"
                 );
+            }
             }
         }
     }
