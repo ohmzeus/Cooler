@@ -136,6 +136,9 @@ contract Cooler is Clone {
     }
 
     /// @notice Repay a loan to get the collateral back.
+    /// @dev    Despite a malicious lender could reenter with the callback, the
+    ///         usage of `msg.sender` prevents any economical benefit to the
+    ///         attacker, since they would be repaying the loan themselves.
     /// @param  loanID_ index of loan in loans[]
     /// @param  repaid_ debt tokens to be repaid.
     /// @return collateral given back to the borrower.
@@ -286,8 +289,8 @@ contract Cooler is Clone {
 
     /// @notice Claim collateral upon loan default.
     /// @param loanID_ index of loan in loans[]
-    /// @return defaulted debt by the borrower and collateral kept by the lender.
-    function claimDefaulted(uint256 loanID_) external returns (uint256, uint256) {
+    /// @return defaulted debt by the borrower, collateral kept by the lender, elapsed time since expiry.
+    function claimDefaulted(uint256 loanID_) external returns (uint256, uint256, uint256) {
         Loan memory loan = loans[loanID_];
         delete loans[loanID_];
 
@@ -299,7 +302,7 @@ contract Cooler is Clone {
         factory().newEvent(loanID_, CoolerFactory.Events.DefaultLoan, 0);
 
         if (loan.callback) CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
-        return (loan.amount, loan.collateral);
+        return (loan.amount, loan.collateral, block.timestamp - loan.expiry);
     }
 
     /// @notice Approve transfer of loan ownership rights to a new address.
