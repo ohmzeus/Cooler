@@ -136,6 +136,9 @@ contract Cooler is Clone {
     }
 
     /// @notice Repay a loan to get the collateral back.
+    /// @dev    Despite a malicious lender could reenter with the callback, the
+    ///         usage of `msg.sender` prevents any economical benefit to the
+    ///         attacker, since they would be repaying the loan themselves.
     /// @param  loanID_ index of loan in loans[]
     /// @param  repaid_ debt tokens to be repaid.
     /// @return collateral given back to the borrower.
