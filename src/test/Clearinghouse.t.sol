@@ -539,11 +539,11 @@ contract ClearinghouseTest is Test {
         clearinghouse.emergencyShutdown();
     }
 
-    function test_restartAfterShutdown() public {
+    function test_reactivate() public {
         vm.startPrank(overseer);
         clearinghouse.emergencyShutdown();
         assertEq(clearinghouse.active(), false);
-        clearinghouse.restartAfterShutdown();
+        clearinghouse.reactivate();
         assertEq(clearinghouse.active(), true);
         vm.stopPrank();
     }
@@ -551,7 +551,7 @@ contract ClearinghouseTest is Test {
     function testRevert_restartAfterShutdown_onlyRole() public {
         vm.prank(others);
         vm.expectRevert();
-        clearinghouse.restartAfterShutdown();
+        clearinghouse.reactivate();
     }
 
     // --- CALLBACKS: ON LOAN REPAYMENT ----------------------------------

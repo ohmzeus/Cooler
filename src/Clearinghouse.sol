@@ -31,6 +31,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error OnlyBurnable();
     error TooEarlyToFund();
     error LengthDiscrepancy();
+
+    // --- EVENTS ----------------------------------------------------
+
+    event Deactivated();
+    event Reactivated();
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
@@ -321,27 +326,21 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  amount_ to transfer.
     function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
-        if (token_ == sdai) {
+        if (token_ == sdai || token_ == dai) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
             uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-            uint256 daiAmount = sdai.previewRedeem(amount_);
+            uint256 daiAmount = (token_ == sdai)
+                ? sdai.previewRedeem(amount_)
+                : amount_;
+    
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
                 amount_: (outstandingDebt > daiAmount) ? outstandingDebt - daiAmount : 0
             });
-        } else if (token_ == dai) {
-            // Since users loans are denominated in DAI, the clearinghouse
-            // debt is set in DAI terms. It must be adjusted when defunding.
-            uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-            TRSRY.setDebt({
-                debtor_: address(this),
-                token_: dai,
-                amount_: (outstandingDebt > amount_) ? outstandingDebt - amount_ : 0
-            });
         }
-        
+
         token_.transfer(address(TRSRY), amount_);
     }
 
@@ -356,11 +355,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // If necessary, defund DAI.
         uint256 daiBalance = dai.balanceOf(address(this));
         if (daiBalance != 0) defund(dai, daiBalance);
+
+        emit Deactivated();
     }
 
     /// @notice Reactivate the contract.
-    function restartAfterShutdown() external onlyRole("cooler_overseer") {
+    function reactivate() external onlyRole("cooler_overseer") {
         active = true;
+
+        emit Reactivated();
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
