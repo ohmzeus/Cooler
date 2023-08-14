@@ -31,6 +31,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error OnlyBurnable();
     error TooEarlyToFund();
     error LengthDiscrepancy();
+
+    // --- EVENTS ----------------------------------------------------
+
+    event Deactivated();
+    event Reactivated();
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
@@ -53,10 +58,16 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     uint256 public constant FUND_AMOUNT = 18_000_000e18;        // 18 million
     uint256 public constant MAX_REWARD = 1e17;                  // 0.1 gOHM
 
-    uint256 public fundTime;     // Timestamp at which rebalancing can occur.
-    uint256 public receivables;  // Outstanding loan receivables.
-                                 // Incremented when a loan is made or rolled.
-                                 // Decremented when a loan is repaid or collateral is burned.
+    // --- STATE VARIABLES -------------------------------------------
+
+    /// @notice determines whether the contract can be funded or not.
+    bool public active;
+    /// @notice timestamp at which the next rebalance can occur.
+    uint256 public fundTime;
+    /// @notice outstanding loan receivables.
+    /// Incremented when a loan is made or rolled.
+    /// Decremented when a loan is repaid or collateral is burned.
+    uint256 public receivables;
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -71,8 +82,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         staking = IStaking(staking_);
         sdai = ERC4626(sdai_);
         dai = ERC20(sdai.asset());
-
-        // Initialize funding schedule.
+        
+        // Initialize the contract status and its funding schedule.
+        active = true;
         fundTime = block.timestamp;
     }
 
@@ -251,18 +263,23 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @dev    Exposure is always capped at FUND_AMOUNT and rebalanced at up to FUND_CADANCE.
     ///         If several rebalances are available (because some were missed), calling this
     ///         function several times won't impact the funds controlled by the contract.
+    ///         If the emergency shutdown is triggered, a rebalance will send funds back to
+    ///         the treasury.
     /// @return False if too early to rebalance. Otherwise, true.
     function rebalance() public returns (bool) {
+        // If the contract is deactivated, defund.
+        uint256 maxFundAmount = active ? FUND_AMOUNT : 0;        
+        // Update funding schedule if necessary.
         if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
         uint256 daiBalance = sdai.maxWithdraw(address(this));
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         // Rebalance funds on hand with treasury's reserves.
-        if (daiBalance < FUND_AMOUNT) {
+        if (daiBalance < maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when funding.
-            uint256 fundAmount = FUND_AMOUNT - daiBalance;
+            uint256 fundAmount = maxFundAmount - daiBalance;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
@@ -278,10 +295,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             // Sweep DAI into DSR if necessary.
             uint256 idle = dai.balanceOf(address(this));
             if (idle != 0) _sweepIntoDSR(idle);
-        } else if (daiBalance > FUND_AMOUNT) {
+        } else if (daiBalance > maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
-            uint256 defundAmount = daiBalance - FUND_AMOUNT;
+            uint256 defundAmount = daiBalance - maxFundAmount;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
@@ -312,30 +329,46 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Return funds to treasury.
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
-    function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
+    function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
-        if (token_ == sdai) {
+        if (token_ == sdai || token_ == dai) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
             uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-            uint256 daiAmount = sdai.previewRedeem(amount_);
+            uint256 daiAmount = (token_ == sdai)
+                ? sdai.previewRedeem(amount_)
+                : amount_;
+    
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
                 amount_: (outstandingDebt > daiAmount) ? outstandingDebt - daiAmount : 0
             });
-        } else if (token_ == dai) {
-            // Since users loans are denominated in DAI, the clearinghouse
-            // debt is set in DAI terms. It must be adjusted when defunding.
-            uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-            TRSRY.setDebt({
-                debtor_: address(this),
-                token_: dai,
-                amount_: (outstandingDebt > amount_) ? outstandingDebt - amount_ : 0
-            });
         }
-        
+
         token_.transfer(address(TRSRY), amount_);
+    }
+
+    /// @notice Deactivate the contract and return funds to treasury.
+    function emergencyShutdown() external onlyRole("emergency_shutdown") {
+        active = false;
+
+        // If necessary, defund sDAI.
+        uint256 sdaiBalance = sdai.balanceOf(address(this));
+        if (sdaiBalance != 0) defund(sdai, sdaiBalance);
+
+        // If necessary, defund DAI.
+        uint256 daiBalance = dai.balanceOf(address(this));
+        if (daiBalance != 0) defund(dai, daiBalance);
+
+        emit Deactivated();
+    }
+
+    /// @notice Reactivate the contract.
+    function reactivate() external onlyRole("cooler_overseer") {
+        active = true;
+
+        emit Reactivated();
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------

@@ -26,6 +26,7 @@ import {Clearinghouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearing
 //
 // Clearinghouse Functions
 // [X] rebalance
+//     [X] can't if the contract is deactivated.
 //     [X] can't rebalance faster than the funding cadence.
 //     [X] Treasury approvals for the clearing house are correct.
 //     [X] if necessary, sends excess DSR funds back to the Treasury.
@@ -36,6 +37,12 @@ import {Clearinghouse, Cooler, CoolerFactory, CoolerCallback} from "src/Clearing
 //     [X] only "cooler_overseer" can call.
 //     [X] cannot defund gOHM.
 //     [X] sends input ERC20 token back to the Treasury.
+// [X] emergencyShutdown
+//     [X] only "emergency_shutdown" can call.
+//     [X] deactivates and defunds.
+// [X] restartAfterShutdown
+//     [X] only "cooler_overseer" can call.
+//     [X] reactivates.
 // [X] lendToCooler
 //     [X] only lend to coolers issued by coolerFactory.
 //     [X] only collateral = gOHM + only debt = DAI.
@@ -116,6 +123,7 @@ contract ClearinghouseTest is Test {
 
         /// Configure access control
         rolesAdmin.grantRole("cooler_overseer", overseer);
+        rolesAdmin.grantRole("emergency_shutdown", overseer);
 
         // Setup clearinghouse initial conditions
         uint mintAmount = 200_000_000e18; // Init treasury with 200 million
@@ -444,6 +452,20 @@ contract ClearinghouseTest is Test {
         );
     }
 
+    function test_rebalance_deactivated_returnFunds() public {
+        vm.prank(overseer);
+        clearinghouse.emergencyShutdown();
+
+        // Simulate loan repayments
+        uint256 oneMillion = 1e24;
+        deal(address(sdai), address(clearinghouse), oneMillion);
+        uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
+        // Rebalances only defund when the contract is deactivated.
+        clearinghouse.rebalance();
+        assertEq(sdai.balanceOf(address(clearinghouse)), 0);
+        assertEq(sdai.balanceOf(address(TRSRY)), sdaiInitTRSRY + oneMillion);
+    }
+
     function testRevert_rebalance_early() public {
         bool canRebalance;
         // Rebalance to be up-to-date with the FUND_CADENCE.
@@ -479,15 +501,57 @@ contract ClearinghouseTest is Test {
 
     function test_defund() public {
         uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
+        uint256 initDebtCH = TRSRY.reserveDebt(dai, address(clearinghouse));
+
         vm.prank(overseer);
         clearinghouse.defund(sdai, 1e24);
         assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + 1e24);
+        assertEq(TRSRY.reserveDebt(dai, address(clearinghouse)), initDebtCH - sdai.previewRedeem(1e24));
     }
 
     function testRevert_defund_gohm() public {
         vm.prank(overseer);
         vm.expectRevert(Clearinghouse.OnlyBurnable.selector);
         clearinghouse.defund(gohm, 1e24);
+    }
+
+    function testRevert_defund_onlyRole() public {
+        vm.prank(others);
+        vm.expectRevert();
+        clearinghouse.defund(gohm, 1e24);
+    }
+
+    // --- EMERGENCY SHUTDOWN CLEARINGHOUSE ------------------------------
+
+    function test_emergencyShutdown() public {
+        uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
+        uint256 sdaiCHBal = sdai.balanceOf(address(clearinghouse));
+
+        vm.prank(overseer);
+        clearinghouse.emergencyShutdown();
+        assertEq(clearinghouse.active(), false);
+        assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + sdaiCHBal);
+    }
+
+    function testRevert_emergencyShutdown_onlyRole() public {
+        vm.prank(others);
+        vm.expectRevert();
+        clearinghouse.emergencyShutdown();
+    }
+
+    function test_reactivate() public {
+        vm.startPrank(overseer);
+        clearinghouse.emergencyShutdown();
+        assertEq(clearinghouse.active(), false);
+        clearinghouse.reactivate();
+        assertEq(clearinghouse.active(), true);
+        vm.stopPrank();
+    }
+
+    function testRevert_restartAfterShutdown_onlyRole() public {
+        vm.prank(others);
+        vm.expectRevert();
+        clearinghouse.reactivate();
     }
 
     // --- CALLBACKS: ON LOAN REPAYMENT ----------------------------------
