@@ -51,11 +51,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- PARAMETER BOUNDS ------------------------------------------
 
-    uint256 public constant INTEREST_RATE = 5e15;               // 0.5%
-    uint256 public constant LOAN_TO_COLLATERAL = 3000e18;       // 3,000
+    uint256 public constant INTEREST_RATE = 5e15;               // 0.5% anually
+    uint256 public constant LOAN_TO_COLLATERAL = 3000e18;       // 3,000 DAI/gOHM
     uint256 public constant DURATION = 121 days;                // Four months
     uint256 public constant FUND_CADENCE = 7 days;              // One week
     uint256 public constant FUND_AMOUNT = 18_000_000e18;        // 18 million
+    uint256 public constant MAX_REWARD = 1e17;                  // 0.1 gOHM
 
     // --- STATE VARIABLES -------------------------------------------
 
@@ -82,7 +83,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         sdai = ERC4626(sdai_);
         dai = ERC20(sdai.asset());
         
-        // Initialize the contract and its funding schedule.
+        // Initialize the contract status and its funding schedule.
         active = true;
         fundTime = block.timestamp;
     }
@@ -204,11 +205,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
                 ++i;
             }
 
-            // Calculate the reward for claiming defaults.
-            // Limited to 5% of the collateral so that it is non-dillutive for OHM holders.
-            uint256 maxReward = collateral * 5e16 / 1e18;
-            keeperRewards = (elapsed < 3 days)
-                ? keeperRewards + maxReward * elapsed / 3 days
+            // Cap rewards to 5% of the collateral to avoid OHM holder's dillution.
+            uint256 maxAuctionReward = collateral * 5e16 / 1e18;
+            // Cap rewards to avoid exorbitant amounts.
+            uint256 maxReward = (maxAuctionReward < MAX_REWARD)
+                ? maxAuctionReward
+                : MAX_REWARD;
+            // Calculate rewards based on the elapsed time since default.
+            keeperRewards = (elapsed < 7 days)
+                ? keeperRewards + maxReward * elapsed / 7 days
                 : keeperRewards + maxReward;
         }
 
