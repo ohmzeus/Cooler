@@ -237,7 +237,7 @@ contract Cooler is Clone {
     ) external returns (uint256 loanID) {
         Request memory req = requests[reqID_];
 
-        // IF necessary, ensure lender implements the CoolerCallback abstract.
+        // If necessary, ensure lender implements the CoolerCallback abstract.
         if (isCallback_ && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
 
         // Ensure loan request is active. 
@@ -265,7 +265,7 @@ contract Cooler is Clone {
         );
 
         // Clear the loan request storage.
-        requests[reqID_].active = req.active;
+        requests[reqID_].active = false;
 
         // Transfer debt tokens to the owner of the request.
         debt().safeTransferFrom(msg.sender, owner(), req.amount);
