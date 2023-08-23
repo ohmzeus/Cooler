@@ -336,7 +336,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Return funds to treasury.
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
-    /// @dev    Access control is storage is held in the `ROLES` module.
     function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
         if (token_ == gOHM) revert OnlyBurnable();
         if (token_ == sdai || token_ == dai) {
@@ -358,7 +357,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Deactivate the contract and return funds to treasury.
-    /// @dev    Access control is storage is held in the `ROLES` module.
     function emergencyShutdown() external onlyRole("emergency_shutdown") {
         active = false;
 
@@ -374,7 +372,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Reactivate the contract.
-    /// @dev    Access control is storage is held in the `ROLES` module.
     function reactivate() external onlyRole("cooler_overseer") {
         active = true;
 

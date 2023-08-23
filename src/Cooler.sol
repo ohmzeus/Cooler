@@ -243,9 +243,8 @@ contract Cooler is Clone {
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
 
-        // Clear the loan request in both, memory and storage.
+        // Clear the loan request in memory.
         req.active = false;
-        requests[reqID_].active = false;
 
         // Calculate and store loan terms.
         uint256 interest = interestFor(req.amount, req.interest, req.duration);
@@ -264,6 +263,9 @@ contract Cooler is Clone {
                 callback: isCallback_
             })
         );
+
+        // Clear the loan request storage.
+        requests[reqID_].active = req.active;
 
         // Transfer debt tokens to the owner of the request.
         debt().safeTransferFrom(msg.sender, owner(), req.amount);
