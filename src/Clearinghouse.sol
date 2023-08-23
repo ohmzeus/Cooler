@@ -39,15 +39,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
-    ERC20 public immutable dai;
-    ERC4626 public immutable sdai;
-    ERC20 public immutable gOHM;
-    IStaking public immutable staking;
+    ERC20 public immutable dai;             // Debt token
+    ERC4626 public immutable sdai;          // Idle DAI will wrapped into sDAI
+    ERC20 public immutable gOHM;            // Collateral token
+    IStaking public immutable staking;      // Necessary to unstake (and burn) OHM from defaults
     
     // --- MODULES ---------------------------------------------------
 
-    TRSRYv1 public TRSRY;
-    MINTRv1 public MINTR;
+    TRSRYv1 public TRSRY;      // Olympus V3 Treasury Module
+    MINTRv1 public MINTR;      // Olympus V3 Minter Module
 
     // --- PARAMETER BOUNDS ------------------------------------------
 
@@ -62,10 +62,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     /// @notice determines whether the contract can be funded or not.
     bool public active;
+
     /// @notice timestamp at which the next rebalance can occur.
     uint256 public fundTime;
+
     /// @notice outstanding loan receivables.
-    /// Incremented when a loan is made or rolled.
+    /// Incremented when a loan is taken or rolled.
     /// Decremented when a loan is repaid or collateral is burned.
     uint256 public receivables;
 
@@ -78,6 +80,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         address coolerFactory_,
         address kernel_
     ) Policy(Kernel(kernel_)) CoolerCallback(coolerFactory_) {
+        // Store the relevant contracts.
         gOHM = ERC20(gohm_);
         staking = IStaking(staking_);
         sdai = ERC4626(sdai_);
@@ -88,7 +91,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         fundTime = block.timestamp;
     }
 
-    /// @notice Default framework setup.
+    /// @notice Default framework setup. Configure dependencies for olympus-v3 modules.
+    /// @dev    This function will be called when the `executor` installs the Clearinghouse
+    ///         policy in the olympus-v3 `Kernel`.
     function configureDependencies() external override returns (Keycode[] memory dependencies) {
         dependencies = new Keycode[](3);
         dependencies[0] = toKeycode("TRSRY");
@@ -100,7 +105,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
     }
 
-    /// @notice Default framework setup.
+    /// @notice Default framework setup. Request permissions for interacting with olympus-v3 modules.
+    /// @dev    This function will be called when the `executor` installs the Clearinghouse
+    ///         policy in the olympus-v3 `Kernel`.
     function requestPermissions() external view override returns (Permissions[] memory requests) {
         Keycode TRSRY_KEYCODE = toKeycode("TRSRY");
 
@@ -132,11 +139,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         receivables += debtForCollateral(collateral);
         gOHM.transferFrom(msg.sender, address(this), collateral);
 
-        // Create loan request.
+        // Create a new loan request.
         gOHM.approve(address(cooler_), collateral);
         uint256 reqID = cooler_.requestLoan(amount_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
-        // Clear loan request by providing enough DAI.
+        // Clear the created loan request by providing enough DAI.
         sdai.withdraw(amount_, address(this), address(this));
         dai.approve(address(cooler_), amount_);
         uint256 loanID = cooler_.clearRequest(reqID, true, true);
@@ -163,10 +170,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             INTEREST_RATE,              
             DURATION
         );
-        receivables += newDebt;
-    
+        receivables += newDebt;    
 
-        // Collect applicable new collateral from user.
+        // If necessary, pledge more collateral from user.
         uint256 newCollateral = cooler_.newCollateralFor(loanID_);
         if (newCollateral > 0) {
             gOHM.transferFrom(msg.sender, address(this), newCollateral);
@@ -194,6 +200,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             // Validate that cooler was deployed by the trusted factory.
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
             
+            // Claim defaults and update cached metrics.
             (uint256 debt, uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
             uint256 interest = interestFromDebt(debt);
             unchecked {

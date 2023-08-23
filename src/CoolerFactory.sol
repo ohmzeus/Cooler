@@ -61,6 +61,7 @@ contract CoolerFactory {
 
         // Otherwise generate new cooler.
         if (cooler == address(0)) {
+            // Clone the cooler implementation.
             bytes memory coolerData = abi.encodePacked(
                 msg.sender,              // owner
                 address(collateral_),    // collateral
@@ -68,6 +69,8 @@ contract CoolerFactory {
                 address(this)            // factory
             );
             cooler = address(coolerImplementation).clone(coolerData);
+
+            // Update storage accordingly.
             coolerFor[msg.sender][collateral_][debt_] = cooler;
             coolersFor[collateral_][debt_].push(cooler);
             created[cooler] = true;
