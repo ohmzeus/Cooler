@@ -86,7 +86,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         sdai = ERC4626(sdai_);
         dai = ERC20(sdai.asset());
         
-        // Initialize the contract status and its funging schedule.
+        // Initialize the contract status and its funding schedule.
         active = true;
         fundTime = block.timestamp;
     }
