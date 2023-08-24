@@ -64,7 +64,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] only the approved addresses can transfer
 //     [X] loan is properly updated
 
-contract CoolerTest is Test {
+contract CoolerFuzzTest is Test {
 
     MockGohm internal collateral;
     MockERC20 internal debt;
@@ -163,22 +163,12 @@ contract CoolerTest is Test {
         return (amount_ * interest) / DECIMALS;
     }
 
-    // -- Cooler: Constructor ---------------------------------------------------
-
-    function test_constructor() public {
-        vm.prank(owner);
-        cooler = Cooler(coolerFactory.generateCooler(collateral, debt));
-        assertEq(address(collateral), address(cooler.collateral()));
-        assertEq(address(debt), address(cooler.debt()));
-        assertEq(address(coolerFactory), address(cooler.factory()));
-    }
-
     // -- REQUEST LOAN ---------------------------------------------------
 
-    function test_requestLoan() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-
+    function testFuzz_requestLoan(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        // test setup
         cooler = _initCooler();
         uint256 reqCollateral = amount_ * DECIMALS / LOAN_TO_COLLATERAL;
         // balances before requesting the loan
@@ -211,10 +201,10 @@ contract CoolerTest is Test {
 
     // -- RESCIND LOAN ---------------------------------------------------
 
-    function test_rescindLoan() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-
+    function testFuzz_rescindLoan(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        // test setup
         cooler = _initCooler();
         (uint256 reqID, uint256 reqCollateral) = _requestLoan(amount_);
         // balances after requesting the loan
@@ -231,11 +221,11 @@ contract CoolerTest is Test {
         assertEq(collateral.balanceOf(address(cooler)), initCoolerCollateral - reqCollateral);
     }
 
-    function test_rescindLoan_multipleRequestAndRecindFirstOne() public {
-        // Setup: Assume 100k loan
-        uint256 amount1_ = 1e21;
-        uint256 amount2_ = 3e21;
-        
+    function testFuzz_rescindLoan_multipleRequestAndRecindFirstOne(uint256 amount_) public {
+        // test inputs
+        uint256 amount1_ = bound(amount_, 0, MAX_DEBT / 3);
+        uint256 amount2_ = 2 * amount1_;
+        // test setup
         cooler = _initCooler();
 
         // Request ID = 1
@@ -301,10 +291,10 @@ contract CoolerTest is Test {
         assertEq(true, reqActive2);
     }
 
-    function testRevert_rescind_onlyOwner() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-
+    function testRevertFuzz_rescind_onlyOwner(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
 
@@ -314,10 +304,10 @@ contract CoolerTest is Test {
         cooler.rescindRequest(reqID);
     }
 
-    function testRevert_rescind_onlyActive() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-
+    function testRevertFuzz_rescind_onlyActive(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
 
@@ -331,12 +321,12 @@ contract CoolerTest is Test {
 
     // -- CLEAR REQUEST --------------------------------------------------
 
-    function test_clearRequest() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_clearRequest(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
-
+        // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
         // balances after requesting the loan
@@ -377,12 +367,12 @@ contract CoolerTest is Test {
         assertEq(debt.balanceOf(lender), initLenderDebt - amount_);
     }
 
-    function testRevert_clear_onlyActive() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_clear_onlyActive(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
-
+        // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
 
@@ -400,10 +390,10 @@ contract CoolerTest is Test {
 
     // -- REPAY LOAN ---------------------------------------------------
 
-    function test_repayLoan_directTrue_callbackFalse() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-        uint256 repayAmount_ = 5e20;
+    function testFuzz_repayLoan_directTrue_callbackFalse(uint256 amount_, uint256 repayAmount_) public {
+        // test inputs
+        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
+        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // cache init vaules
@@ -444,10 +434,10 @@ contract CoolerTest is Test {
         }
     }
     
-    function test_repayLoan_directFalse_callbackFalse() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-        uint256 repayAmount_ = 5e20;
+    function testFuzz_repayLoan_directFalse_callbackFalse(uint256 amount_, uint256 repayAmount_) public {
+        // test inputs
+        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
+        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = false;
         bool callbackRepay = false;
         // cache init vaules
@@ -488,10 +478,10 @@ contract CoolerTest is Test {
         }
     }
 
-    function testRevert_repay_ReentrancyAttack() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-        uint256 repayAmount_ = 5e20;
+    function testRevertFuzz_repay_ReentrancyAttack(uint256 amount_, uint256 repayAmount_) public {
+        // test inputs
+        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
+        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = true;
         // test setup
@@ -522,10 +512,10 @@ contract CoolerTest is Test {
         vm.stopPrank();
     }
     
-    function testRevert_repayLoan_defaulted() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-        uint256 repayAmount_ = 5e20;
+    function testRevertFuzz_repayLoan_defaulted(uint256 amount_, uint256 repayAmount_) public {
+        // test inputs
+        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
+        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -547,10 +537,10 @@ contract CoolerTest is Test {
 
     // -- CLAIM REPAID ---------------------------------------------------
     
-    function test_claimRepaid() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-        uint256 repayAmount_ = 5e20;
+    function testFuzz_claimRepaid(uint256 amount_, uint256 repayAmount_) public {
+        // test inputs
+        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
+        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = false;
         bool callbackRepay = false;
         // test setup
@@ -584,9 +574,9 @@ contract CoolerTest is Test {
 
     // -- SET DIRECT REPAYMENT -------------------------------------------
 
-    function test_setDirectRepay() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_setDirectRepay(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -609,9 +599,9 @@ contract CoolerTest is Test {
         vm.stopPrank();
     }
 
-    function testRevert_setDirectRepay_onlyLender() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_setDirectRepay_onlyLender(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -627,9 +617,9 @@ contract CoolerTest is Test {
 
     // -- CLAIM DEFAULTED ------------------------------------------------
 
-    function test_claimDefaulted() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_claimDefaulted(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -662,10 +652,10 @@ contract CoolerTest is Test {
         assertEq(false, loanCallback);
     }
 
-    function test_claimDefaulted_multipleLoansAndFirstOneDefaults() public {
-        // Setup: Assume 100k and 300k loans
-        uint256 amount1_ = 1e21;
-        uint256 amount2_ = 3e21;
+    function testFuzz_claimDefaulted_multipleLoansAndFirstOneDefaults(uint256 amount_) public {
+        // test inputs
+        uint256 amount1_ = bound(amount_, 0, MAX_DEBT / 3);
+        uint256 amount2_ = 2 * amount1_;
         bool callbackRepay = false;
         bool directRepay = true;
         // test setup
@@ -733,10 +723,10 @@ contract CoolerTest is Test {
         }
     }
 
-    function testRevert_claimDefaulted_ReentrancyAttack() public {
-        // Setup: Assume 100k and 300k loans
-        uint256 amount1_ = 1e21;
-        uint256 amount2_ = 3e21;
+    function testRevertFuzz_claimDefaulted_ReentrancyAttack(uint256 amount_) public {
+        // test inputs
+        uint256 amount1_ = bound(amount_, 0, MAX_DEBT / 3);
+        uint256 amount2_ = 2 * amount1_;
         bool callbackRepay = false;
         bool directRepay = true;
         // test setup
@@ -775,9 +765,9 @@ contract CoolerTest is Test {
         assertEq(cooler.collateralFor(amount2_, LOAN_TO_COLLATERAL), collateral.balanceOf(address(cooler)));
     }
 
-    function testRevert_defaulted_notExpired() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_defaulted_notExpired(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -796,10 +786,10 @@ contract CoolerTest is Test {
 
     // -- DELEGATE VOTING ------------------------------------------------
 
-    function test_delegateVoting() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-    
+    function testFuzz_delegateVoting(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        // test setup
         cooler = _initCooler();
         _requestLoan(amount_);
 
@@ -808,10 +798,10 @@ contract CoolerTest is Test {
         assertEq(others, collateral.delegatee());
     }
 
-    function testRevert_delegateVoting_onlyOwner() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-
+    function testRevertFuzz_delegateVoting_onlyOwner(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        // test setup
         cooler = _initCooler();
         _requestLoan(amount_);
 
@@ -822,9 +812,9 @@ contract CoolerTest is Test {
 
     // -- APPROVE TRANSFER ---------------------------------------------------
 
-    function test_approve() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_approve(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -838,9 +828,9 @@ contract CoolerTest is Test {
         assertEq(others, cooler.approvals(loanID));
     }
 
-    function testRevert_approve_onlyLender() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_approve_onlyLender(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -855,9 +845,9 @@ contract CoolerTest is Test {
 
     // -- TRANSFER OWNERSHIP ---------------------------------------------
 
-    function test_transfer() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_transfer(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -878,9 +868,9 @@ contract CoolerTest is Test {
         assertEq(address(0), cooler.approvals(loanID));
     }
 
-    function testRevert_transfer_onlyApproved() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_transfer_onlyApproved(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -895,9 +885,9 @@ contract CoolerTest is Test {
 
     // -- PROVIDE NEW ROLL TERMS -----------------------------------------
 
-    function test_newRollTerms() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_newRollTerms(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -923,31 +913,11 @@ contract CoolerTest is Test {
         assertEq(true, request.active);
     }
 
-    function testRevert_newRollTerms_onlyLender() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
-        bool directRepay = true;
-        bool callbackRepay = false;
-        // test setup
-        cooler = _initCooler();
-        (uint256 reqID, ) = _requestLoan(amount_);
-        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
-
-        vm.prank(others);
-        vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.provideNewTermsForRoll(
-            loanID,
-            INTEREST_RATE * 2,
-            LOAN_TO_COLLATERAL / 2,
-            DURATION * 2
-        );
-    }
-
     // -- ROLL LOAN ------------------------------------------------------
 
-    function test_rollLoan() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testFuzz_rollLoan(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT / 2);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -987,9 +957,9 @@ contract CoolerTest is Test {
         assertEq(loan.request.active, false);
     }
 
-    function testRevert_roll_onlyActive() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_roll_onlyActive(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup
@@ -1003,9 +973,9 @@ contract CoolerTest is Test {
         cooler.rollLoan(loanID);
     }
 
-    function testRevert_roll_ReentrancyAttack() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_roll_ReentrancyAttack(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT / 2);
         bool directRepay = true;
         bool callbackRepay = true;
         // test setup
@@ -1048,9 +1018,9 @@ contract CoolerTest is Test {
         vm.stopPrank();
     }
 
-    function testRevert_roll_defaulted() public {
-        // Setup: Assume 100k loan
-        uint256 amount_ = 1e21;
+    function testRevertFuzz_roll_defaulted(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
         // test setup

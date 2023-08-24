@@ -273,20 +273,26 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     ///         If the emergency shutdown is triggered, a rebalance will send funds back to
     ///         the treasury.
     /// @return False if too early to rebalance. Otherwise, true.
-    function rebalance() public returns (bool) {
-        // If the contract is deactivated, defund.
-        uint256 maxFundAmount = active ? FUND_AMOUNT : 0;        
+    function rebalance() public returns (bool) {     
         // Update funding schedule if necessary.
         if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
+        // If the contract is deactivated, defund.
+        uint256 maxFundAmount = active ? FUND_AMOUNT : 0;
+
+        // Cache current funding landscape.
         uint256 daiBalance = sdai.maxWithdraw(address(this));
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-        // Rebalance funds on hand with treasury's reserves.
+        // Rebalance funds on hand with treasury's reserves.  
         if (daiBalance < maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when funding.
-            uint256 fundAmount = maxFundAmount - daiBalance;
+            // Clearinghouse is funded according to TRSRY reserves.
+            uint256 daiBalanceTRSRY = sdai.previewWithdraw(sdai.balanceOf(address(TRSRY)));
+            uint256 fundAmount = (maxFundAmount - daiBalance < daiBalanceTRSRY)
+                ? maxFundAmount - daiBalance
+                : daiBalanceTRSRY;
             TRSRY.setDebt({
                 debtor_: address(this),
                 token_: dai,
