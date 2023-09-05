@@ -336,7 +336,14 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Return funds to treasury.
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
-    function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
+    function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
+        _defund(token_, amount_);
+    }
+
+    /// @notice Return funds to treasury.
+    /// @param  token_ to transfer.
+    /// @param  amount_ to transfer.
+    function _defund(ERC20 token_, uint256 amount_) internal {
         if (token_ == gOHM) revert OnlyBurnable();
         if (token_ == sdai || token_ == dai) {
             // Since users loans are denominated in DAI, the clearinghouse
@@ -362,11 +369,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // If necessary, defund sDAI.
         uint256 sdaiBalance = sdai.balanceOf(address(this));
-        if (sdaiBalance != 0) defund(sdai, sdaiBalance);
+        if (sdaiBalance != 0) _defund(sdai, sdaiBalance);
 
         // If necessary, defund DAI.
         uint256 daiBalance = dai.balanceOf(address(this));
-        if (daiBalance != 0) defund(dai, daiBalance);
+        if (daiBalance != 0) _defund(dai, daiBalance);
 
         emit Deactivated();
     }
