@@ -250,7 +250,17 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param *unused loadID_ of the load.
     /// @param amount_ repaid (in DAI).
     function _onRepay(uint256, uint256 amount_) internal override {
-        _sweepIntoDSR(amount_);
+        if (active) {
+            _sweepIntoDSR(amount_);
+        } else {
+            uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
+            TRSRY.setDebt({
+                debtor_: address(this),
+                token_: dai,
+                amount_: (outstandingDebt > amount_) ? outstandingDebt - amount_ : 0
+            });
+            dai.transfer(address(TRSRY), amount_);
+        }
 
         // Decrement loan receivables.
         receivables = (receivables > amount_) ? receivables - amount_ : 0;
