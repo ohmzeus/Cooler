@@ -317,9 +317,11 @@ contract Cooler is Clone {
     /// @return defaulted debt by the borrower, collateral kept by the lender, elapsed time since expiry.
     function claimDefaulted(uint256 loanID_) external returns (uint256, uint256, uint256) {
         Loan memory loan = loans[loanID_];
-        delete loans[loanID_];
 
         if (block.timestamp <= loan.expiry) revert NoDefault();
+
+        loans[loanID_].amount = 0;
+        loans[loanID_].collateral = 0;
 
         // Transfer defaulted collateral to the lender.
         collateral().safeTransfer(loan.lender, loan.collateral);
