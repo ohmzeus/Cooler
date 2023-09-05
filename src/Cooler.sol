@@ -274,6 +274,7 @@ contract Cooler is Clone {
         factory().newEvent(reqID_, CoolerFactory.Events.ClearRequest, 0);
     }
 
+    /// @dev note changed function to retain previous terms and only activate rollover. Interfaces etc should be updated.
     /// @notice Provide new terms for loan to be rolled over.
     /// @param  loanID_ index of loan in loans[].
     /// @param  interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
@@ -289,14 +290,7 @@ contract Cooler is Clone {
 
         if (msg.sender != loan.lender) revert OnlyApproved();
 
-        loan.request =
-            Request(
-                loan.amount,
-                interest_,
-                loanToCollateral_,
-                duration_,
-                true
-            );
+        loan.request.active = true;
     }
 
     /// @notice Claim debt tokens if repayDirect was false.
