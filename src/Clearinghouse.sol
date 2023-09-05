@@ -42,6 +42,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     ERC20 public immutable dai;             // Debt token
     ERC4626 public immutable sdai;          // Idle DAI will wrapped into sDAI
     ERC20 public immutable gOHM;            // Collateral token
+    ERC20 public immutable OHM;             // Underlying collateral token
     IStaking public immutable staking;      // Necessary to unstake (and burn) OHM from defaults
     
     // --- MODULES ---------------------------------------------------
@@ -75,6 +76,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     constructor(
         address gohm_,
+        address ohm_,
         address staking_,
         address sdai_,
         address coolerFactory_,
@@ -82,6 +84,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     ) Policy(Kernel(kernel_)) CoolerCallback(coolerFactory_) {
         // Store the relevant contracts.
         gOHM = ERC20(gohm_);
+        OHM = ERC20(ohm_);
         staking = IStaking(staking_);
         sdai = ERC4626(sdai_);
         dai = ERC20(sdai.asset());
@@ -239,9 +242,14 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Reward keeper.
         gOHM.transfer(msg.sender, keeperRewards);
-        // Unstake and burn the collateral of the defaulted loans.
+        // Unstake the collateral of the defaulted loans.
         gOHM.approve(address(staking), totalCollateral - keeperRewards);
-        MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral - keeperRewards, false, false));
+        staking.unstake(address(this), totalCollateral - keeperRewards, false, false);
+
+        // Burn the underlying collateral of the defaulted loans.
+        uint256 burnAmount = OHM.balanceOf(address(this));
+        OHM.approve(address(MINTR), burnAmount);
+        MINTR.burnOhm(address(this), burnAmount);
     }
 
     // --- CALLBACKS -----------------------------------------------------
