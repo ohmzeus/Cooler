@@ -199,6 +199,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         for (uint256 i=0; i < loans;) {
             // Validate that cooler was deployed by the trusted factory.
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
+
+            // Validate that loan was written by clearinghouse.
+            if (Cooler(coolers_[i]).getLoan(loanID_).lender != address(this)) continue;
             
             // Claim defaults and update cached metrics.
             (uint256 debt, uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
