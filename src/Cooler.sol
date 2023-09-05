@@ -36,6 +36,7 @@ contract Cooler is Clone {
         uint256 loanToCollateral;   // Requested loan-to-collateral ratio.
         uint256 duration;           // Time to repay the loan before it defaults.
         bool active;                // Any lender can clear an active loan request.
+        address requester;          // The address that created the request.
     }
 
     /// @notice A request is converted to a loan when a lender clears it.
@@ -108,7 +109,8 @@ contract Cooler is Clone {
                 interest: interest_,
                 loanToCollateral: loanToCollateral_,
                 duration: duration_,
-                active: true
+                active: true,
+                requester: msg.sender
             })
         );
 
@@ -237,8 +239,10 @@ contract Cooler is Clone {
     ) external returns (uint256 loanID) {
         Request memory req = requests[reqID_];
 
+        bool callback = (isCallback_ && msg.sender == req.requester);
+
         // If necessary, ensure lender implements the CoolerCallback abstract.
-        if (isCallback_ && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+        if (callback && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
 
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
@@ -260,7 +264,7 @@ contract Cooler is Clone {
                 expiry: expiration,
                 lender: msg.sender,
                 repayDirect: repayDirect_,
-                callback: isCallback_
+                callback: callback
             })
         );
 
