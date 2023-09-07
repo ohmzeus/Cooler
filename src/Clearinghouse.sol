@@ -253,13 +253,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         if (active) {
             _sweepIntoDSR(amount_);
         } else {
-            uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
-            TRSRY.setDebt({
-                debtor_: address(this),
-                token_: dai,
-                amount_: (outstandingDebt > amount_) ? outstandingDebt - amount_ : 0
-            });
-            dai.transfer(address(TRSRY), amount_);
+            _defund(dai, amount_);
         }
 
         // Decrement loan receivables.
