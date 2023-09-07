@@ -122,7 +122,7 @@ contract ClearinghouseTest is Test {
         kernel.executeAction(Actions.ActivatePolicy, address(rolesAdmin));
 
         /// Configure access control
-        rolesAdmin.grantRole("cooler_overseer", overseer);
+        //  rolesAdmin.grantRole("cooler_overseer", overseer);
         rolesAdmin.grantRole("emergency_shutdown", overseer);
 
         // Setup clearinghouse initial conditions
