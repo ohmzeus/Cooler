@@ -239,6 +239,9 @@ contract Cooler is Clone {
     ) external returns (uint256 loanID) {
         Request memory req = requests[reqID_];
 
+        // Loan callbacks are only allowed if:
+        //  1. The loan request has been created via a trusted lender.
+        //  2. The lender signals that it implements the CoolerCallback Abstract.
         bool callback = (isCallback_ && msg.sender == req.requester);
 
         // If necessary, ensure lender implements the CoolerCallback abstract.
@@ -299,7 +302,8 @@ contract Cooler is Clone {
                 interest_,
                 loanToCollateral_,
                 duration_,
-                true
+                true,
+                msg.sender
             );
     }
 

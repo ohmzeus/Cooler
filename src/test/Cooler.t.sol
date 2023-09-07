@@ -33,7 +33,6 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] loan is updated
 //     [X] direct (true): new collateral and debt balances are correct
 //     [X] direct (false): new collateral and debt balances are correct
-//     [X] callback (true): cannot perform a reentrancy attack
 // [X] claimRepaid
 //     [X] loan is updated
 //     [X] lender and cooler new debt balances are correct
@@ -46,14 +45,12 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] loan is updated
 //     [X] request is deactivated
 //     [X] user and cooler new collateral balances are correct
-//     [X] callback (true): cannot perform a reentrancy attack
 // [X] provideNewTermsForRoll
 //     [X] only lender can set new terms
 //     [X] request is properly updated
 // [X] claimDefaulted
 //     [X] only possible after expiry
 //     [X] lender and cooler new collateral balances are correct
-//     [X] callback (true): cannot perform a reentrancy attack
 // [X] delegateVoting
 //     [X] only owner can delegate
 //     [X] collateral voting power is properly delegated
@@ -196,7 +193,7 @@ contract CoolerTest is Test {
         );
         vm.stopPrank();
 
-        (uint256 reqAmount, uint256 reqInterest, uint256 reqRatio, uint256 reqDuration, bool reqActive) = cooler.requests(reqID);
+        (uint256 reqAmount, uint256 reqInterest, uint256 reqRatio, uint256 reqDuration, bool reqActive, address requester) = cooler.requests(reqID);
         // check: request storage
         assertEq(0, reqID);
         assertEq(amount_, reqAmount);
@@ -204,6 +201,7 @@ contract CoolerTest is Test {
         assertEq(LOAN_TO_COLLATERAL, reqRatio);
         assertEq(DURATION, reqDuration);
         assertEq(true, reqActive);
+        assertEq(owner, requester);
         // check: collateral balances
         assertEq(collateral.balanceOf(owner), initOwnerCollateral - reqCollateral);
         assertEq(collateral.balanceOf(address(cooler)), initCoolerCollateral + reqCollateral);
@@ -223,7 +221,7 @@ contract CoolerTest is Test {
 
         vm.prank(owner);
         cooler.rescindRequest(reqID);
-        (,,,, bool reqActive) = cooler.requests(reqID);
+        (,,,, bool reqActive, ) = cooler.requests(reqID);
         // check: request storage
         assertEq(false, reqActive);
         // check: collateral balances
@@ -249,8 +247,8 @@ contract CoolerTest is Test {
             DURATION
         );
         vm.stopPrank();
-
-        (uint256 reqAmount1, uint256 reqInterest1, uint256 reqRatio1, uint256 reqDuration1, bool reqActive1) = cooler.requests(reqID1);
+        {
+        (uint256 reqAmount1, uint256 reqInterest1, uint256 reqRatio1, uint256 reqDuration1, bool reqActive1, address requester1) = cooler.requests(reqID1);
         // check: request storage
         assertEq(0, reqID1);
         assertEq(amount1_, reqAmount1);
@@ -258,6 +256,8 @@ contract CoolerTest is Test {
         assertEq(LOAN_TO_COLLATERAL, reqRatio1);
         assertEq(DURATION, reqDuration1);
         assertEq(true, reqActive1);
+        assertEq(owner, requester1);
+        }
 
         // Request ID = 2
         vm.startPrank(others);
@@ -270,8 +270,8 @@ contract CoolerTest is Test {
             DURATION
         );
         vm.stopPrank();
-
-        (uint256 reqAmount2, uint256 reqInterest2, uint256 reqRatio2, uint256 reqDuration2, bool reqActive2) = cooler.requests(reqID2);
+        {
+        (uint256 reqAmount2, uint256 reqInterest2, uint256 reqRatio2, uint256 reqDuration2, bool reqActive2, address requester2) = cooler.requests(reqID2);
         // check: request storage
         assertEq(1, reqID2);
         assertEq(amount2_, reqAmount2);
@@ -279,26 +279,34 @@ contract CoolerTest is Test {
         assertEq(LOAN_TO_COLLATERAL, reqRatio2);
         assertEq(DURATION, reqDuration2);
         assertEq(true, reqActive2);
+        assertEq(others, requester2);
+        }
 
         // Rescind Request ID = 1
         vm.prank(owner);
         cooler.rescindRequest(reqID1);
-
-        (reqAmount1, reqInterest1, reqRatio1, reqDuration1, reqActive1) = cooler.requests(reqID1);
-        (reqAmount2, reqInterest2, reqRatio2, reqDuration2, reqActive2) = cooler.requests(reqID2);
-        // check: request storage
+        {
+        (uint256 reqAmount1, uint256 reqInterest1, uint256 reqRatio1, uint256 reqDuration1, bool reqActive1, address requester1) = cooler.requests(reqID1);
+        // check: request1 storage 
         assertEq(0, reqID1);
         assertEq(amount1_, reqAmount1);
         assertEq(INTEREST_RATE, reqInterest1);
         assertEq(LOAN_TO_COLLATERAL, reqRatio1);
         assertEq(DURATION, reqDuration1);
         assertEq(false, reqActive1);
+        assertEq(owner, requester1);
+        }
+        {
+        (uint256 reqAmount2, uint256 reqInterest2, uint256 reqRatio2, uint256 reqDuration2, bool reqActive2, address requester2) = cooler.requests(reqID2);
+        // check: request2 storage
         assertEq(1, reqID2);
         assertEq(amount2_, reqAmount2);
         assertEq(INTEREST_RATE, reqInterest2);
         assertEq(LOAN_TO_COLLATERAL, reqRatio2);
         assertEq(DURATION, reqDuration2);
         assertEq(true, reqActive2);
+        assertEq(others, requester2);
+        }
     }
 
     function testRevertFuzz_rescind_onlyOwner(uint256 amount_) public {
@@ -350,7 +358,7 @@ contract CoolerTest is Test {
         vm.stopPrank();
 
         { // block scoping to prevent "stack too deep" compiler error
-        (,,,, bool reqActive) = cooler.requests(reqID);
+        (,,,, bool reqActive, ) = cooler.requests(reqID);
         // check: request storage
         assertEq(false, reqActive);
         }
@@ -486,40 +494,6 @@ contract CoolerTest is Test {
         assertEq(repayAmount_, loanUnclaimed, "unclaimed debt");
         assertEq(initLoanCollat - decollatAmount, loanCollat, "outstanding collat");
         }
-    }
-
-    function testRevertFuzz_repay_ReentrancyAttack(uint256 amount_, uint256 repayAmount_) public {
-        // test inputs
-        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
-        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
-        bool directRepay = true;
-        bool callbackRepay = true;
-        // test setup
-        cooler = _initCooler();
-        (uint256 reqID, ) = _requestLoan(amount_);
-        
-        // Create a malicious lender that reenters on defaults
-        MockMaliciousLender attacker = new MockMaliciousLender(address(coolerFactory));
-        deal(address(debt), address(attacker), amount_);
-
-        vm.startPrank(address(attacker));
-        // aprove debt so that it can be transferred from the cooler
-        debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
-        vm.stopPrank();
-
-        // block.timestamp < loan expiry
-        vm.warp(block.timestamp + DURATION / 2);
-
-        vm.startPrank(owner);
-        debt.approve(address(cooler), repayAmount_);
-        // A reentrancy attack on repayLoan wouldn't provide any economical benefit to the
-        // attacker, since it would cause the malicious lender to repay the loan on behalf
-        // of the owner. In this test, the attacker hasn't approved further debt spending
-        // and therefor the transfer will fail.
-        vm.expectRevert("TRANSFER_FROM_FAILED");
-        cooler.repayLoan(loanID, repayAmount_);
-        vm.stopPrank();
     }
     
     function testRevertFuzz_repayLoan_defaulted(uint256 amount_, uint256 repayAmount_) public {
@@ -731,48 +705,6 @@ contract CoolerTest is Test {
         assertEq(true, loanDirect2, "loanDirect2");
         assertEq(false, loanCallback2, "loanCallback2");
         }
-    }
-
-    function testRevertFuzz_claimDefaulted_ReentrancyAttack(uint256 amount_) public {
-        // test inputs
-        uint256 amount1_ = bound(amount_, 0, MAX_DEBT / 3);
-        uint256 amount2_ = 2 * amount1_;
-        bool callbackRepay = false;
-        bool directRepay = true;
-        // test setup
-        cooler = _initCooler();
-        // Request ID = 1
-        vm.startPrank(owner);
-        collateral.approve(address(cooler), amount1_);
-        uint256 reqID1 = cooler.requestLoan(amount1_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
-        vm.stopPrank();
-        // Request ID = 2
-        vm.startPrank(others);
-        collateral.approve(address(cooler), amount2_);
-        uint256 reqID2 = cooler.requestLoan(amount2_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
-        vm.stopPrank();
-        
-        // Create a malicious lender that reenters on defaults
-        MockMaliciousLender attacker = new MockMaliciousLender(address(coolerFactory));
-        deal(address(debt), address(attacker), amount1_ + amount2_);
-
-        vm.startPrank(address(attacker));
-        // aprove debt so that it can be transferred from the cooler
-        debt.approve(address(cooler), amount1_ + amount2_);
-        uint256 loanID1 = cooler.clearRequest(reqID1, directRepay, callbackRepay);
-        uint256 loanID2 = cooler.clearRequest(reqID2, directRepay, callbackRepay);
-        vm.stopPrank();
-
-        // block.timestamp > loan expiry
-        vm.warp(block.timestamp + DURATION + 1);
-
-        vm.prank(lender);
-        cooler.claimDefaulted(loanID1);
-
-        // A reentrancy attack on claimDefaulted() doesn't have any impact thanks to the usage of the
-        // Check-Effects-Interaction pattern. Since the loan storage is emptied at the begining,
-        // a reentrancy attack is useless and ends in a second transfer of 0 collateral tokens to the attacker.
-        assertEq(cooler.collateralFor(amount2_, LOAN_TO_COLLATERAL), collateral.balanceOf(address(cooler)));
     }
 
     function testRevertFuzz_defaulted_notExpired(uint256 amount_) public {
@@ -1001,51 +933,6 @@ contract CoolerTest is Test {
         // not rollable unless lender provides new terms for rolling
         vm.expectRevert(Cooler.NotRollable.selector);
         cooler.rollLoan(loanID);
-    }
-
-    function testRevertFuzz_roll_ReentrancyAttack(uint256 amount_) public {
-        // test inputs
-        amount_ = bound(amount_, 0, MAX_DEBT / 2);
-        bool directRepay = true;
-        bool callbackRepay = true;
-        // test setup
-        cooler = _initCooler();
-        (uint256 reqID, ) = _requestLoan(amount_);
-        
-        // Create a malicious lender that reenters on defaults
-        MockMaliciousLender attacker = new MockMaliciousLender(address(coolerFactory));
-        deal(address(debt), address(attacker), amount_);
-
-        vm.startPrank(address(attacker));
-        // aprove debt so that it can be transferred from the cooler
-        debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
-        vm.stopPrank();
-
-        // block.timestamp < loan expiry
-        vm.warp(block.timestamp + DURATION / 2);
-
-        vm.prank(address(attacker));
-        cooler.provideNewTermsForRoll(
-            loanID,
-            INTEREST_RATE * 2,
-            LOAN_TO_COLLATERAL / 2,
-            DURATION * 2
-        );
-
-        (, uint256 loanAmount,, uint256 loanCollat,,,,) = cooler.loans(loanID);
-        uint256 rollCollat = loanAmount * DECIMALS / (LOAN_TO_COLLATERAL / 2);
-        uint256 newCollat = rollCollat > loanCollat ? rollCollat - loanCollat : 0;
-
-        vm.startPrank(owner);
-        // aprove collateral so that it can be transferred by cooler
-        collateral.approve(address(cooler), newCollat);
-        // A reentrancy attack on rollLoan() doesn't have any impact thanks to the usage of the
-        // Check-Effects-Interaction pattern. Since the loan request is deactivated at the begining,
-        // a reentrancy attack attemp reverts with a NotRollable() error.
-        vm.expectRevert(Cooler.NotRollable.selector);
-        cooler.rollLoan(loanID);
-        vm.stopPrank();
     }
 
     function testRevertFuzz_roll_defaulted(uint256 amount_) public {
