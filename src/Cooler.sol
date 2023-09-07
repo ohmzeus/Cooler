@@ -246,7 +246,6 @@ contract Cooler is Clone {
 
         // If necessary, ensure lender implements the CoolerCallback abstract.
         if (callback && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
-
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
 

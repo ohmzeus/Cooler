@@ -7,7 +7,7 @@ import {UserFactory} from "test/lib/UserFactory.sol";
 
 import {MockGohm} from "test/mocks/MockGohm.sol";
 import {MockERC20} from "solmate/test/utils/mocks/MockERC20.sol";
-import {MockMaliciousLender} from "test/mocks/MockMaliciousLender.sol";
+import {MockLender} from "test/mocks/MockCallbackLender.sol";
 
 import {Cooler} from "src/Cooler.sol";
 import {CoolerFactory} from "src/CoolerFactory.sol";
@@ -28,6 +28,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] only active requests can be cleared
 //     [X] request cleared and a new loan is created
 //     [X] user and lender new debt balances are correct
+//     [X] callback: only enabled if lender == requester
 // [X] repayLoan
 //     [X] only possible before expiry
 //     [X] loan is updated
@@ -383,6 +384,87 @@ contract CoolerTest is Test {
         // check: debt balances
         assertEq(debt.balanceOf(owner), initOwnerDebt + amount_);
         assertEq(debt.balanceOf(lender), initLenderDebt - amount_);
+    }
+
+    function testFuzz_clearRequest_callbackFalse(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        bool directRepay = true;
+        bool callbackRepay = false;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount_);
+
+        vm.startPrank(lender);
+        // aprove debt so that it can be transferred by cooler
+        debt.approve(address(cooler), amount_);
+        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        vm.stopPrank();
+        
+        // since lender doesn't implement callbacks they are not enabled.
+        (,,,,,,, bool loanCallback) = cooler.loans(loanID);
+        assertEq(false, loanCallback);
+    }
+
+    function testFuzz_clearRequest_callbackTrue_requesterIsNotLender(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        bool directRepay = true;
+        bool callbackRepay = true;
+        // test setup
+        cooler = _initCooler();
+        vm.startPrank(owner);
+        // aprove collateral so that it can be transferred by cooler
+        collateral.approve(address(cooler), amount_);
+        uint256 reqID = cooler.requestLoan(
+            amount_,
+            INTEREST_RATE,
+            LOAN_TO_COLLATERAL,
+            DURATION
+        );
+        vm.stopPrank();
+
+        vm.startPrank(lender);
+        // aprove debt so that it can be transferred by cooler
+        debt.approve(address(cooler), amount_);
+        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        vm.stopPrank();
+        
+        // Requester <> Lender: callbacks are not enabled.
+        (,,,,,,, bool loanCallback) = cooler.loans(loanID);
+        assertEq(false, loanCallback);
+    }
+
+    function testFuzz_clearRequest_callbackTrue_requesterIsLender(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        bool directRepay = true;
+        bool callbackRepay = true;
+        // test setup
+        cooler = _initCooler();
+        MockLender callbackLender = new MockLender(address(coolerFactory));
+        // fund the lender
+        deal(address(debt), address(callbackLender), amount_);
+        // simulate trusted lender by minting collateral to the lender beforehand.
+        deal(address(collateral), address(callbackLender), amount_);
+
+        vm.startPrank(address(callbackLender));
+        // aprove collateral so that it can be transferred by cooler
+        collateral.approve(address(cooler), amount_);
+        uint256 reqID = cooler.requestLoan(
+            amount_,
+            INTEREST_RATE,
+            LOAN_TO_COLLATERAL,
+            DURATION
+        );
+        // aprove debt so that it can be transferred by cooler
+        debt.approve(address(cooler), amount_);
+        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        vm.stopPrank();
+        
+        // Requester == Lender: callbacks are not enabled.
+        (,,,,,,, bool loanCallback) = cooler.loans(loanID);
+        assertEq(true, loanCallback);
     }
 
     function testRevertFuzz_clear_onlyActive(uint256 amount_) public {
