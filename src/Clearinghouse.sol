@@ -180,7 +180,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         dai.approve(msg.sender, interestDue);
         dai.transferFrom(
             msg.sender,
-            cooler_.getLoan(loanID_).recipient,
+            loan.recipient,
             interestDue
         );
 
