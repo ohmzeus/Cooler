@@ -366,8 +366,8 @@ contract Cooler is Clone {
     // --- AUX FUNCTIONS ---------------------------------------------
 
     /// @notice Compute collateral needed for loan amount at given loan to collateral ratio.
-    /// @param  amount_ of collateral tokens.
-    /// @param  loanToCollateral_ ratio for loan.
+    /// @param  amount_ of loan to be taken. Expressed in 10**debt().decimals().
+    /// @param  loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
     function collateralFor(uint256 amount_, uint256 loanToCollateral_) public view returns (uint256) {
         return (amount_ * (10 ** collateral().decimals())) / loanToCollateral_;
     }
