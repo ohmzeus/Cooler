@@ -31,6 +31,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error OnlyBurnable();
     error TooEarlyToFund();
     error LengthDiscrepancy();
+    error OnlyBorrower();
+    error OnlyLender();
 
     // --- EVENTS ----------------------------------------------------
 
@@ -177,7 +179,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         dai.approve(msg.sender, interestDue);
         dai.transferFrom(
             msg.sender,
-            cooler_.getLoan(loanID).recipient,
+            cooler_.getLoan(loanID_).recipient,
             interestDue
         );
 
@@ -186,7 +188,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // TODO need to simplify this
         // Remove interest due, then add new interest
-        interestReceivables -= interestDue;
+        interestReceivable -= interestDue;
         interestReceivable += cooler_.getLoan(loanID_).origInterest;
     }
 
@@ -199,7 +201,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 loans = loans_.length;
         if (loans != coolers_.length) revert LengthDiscrepancy();
 
-        uint256 totalDebt;
+        uint256 totalPrinciple;
         uint256 totalInterest;
         uint256 totalCollateral;
         uint256 keeperRewards;
@@ -208,12 +210,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
             
             // Claim defaults and update cached metrics.
-            (uint256 debt, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
+            (uint256 principle, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
 
             // TODO make sure recievables is updated properly with interest split
             unchecked {
                 // Cannot overflow due to max supply limits for both tokens
-                totalDebt += debt;
+                totalPrinciple += principle;
                 totalInterest += interest;
                 totalCollateral += collateral;
                 // There will not exist more than 2**256 loans
@@ -234,9 +236,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
                 : keeperRewards + maxReward;
         }
 
-        // TODO make sure this is correct
         // Decrement loan receivables.
-        receivables = (receivables > totalDebt) ? receivables - totalDebt : 0;
+        interestReceivable = (interestReceivable > totalInterest) ? interestReceivable - totalInterest : 0;
 
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
@@ -245,8 +246,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         TRSRY.setDebt({
             debtor_: address(this),
             token_: dai,
-            amount_: (outstandingDebt > (totalDebt - totalInterest))
-                ? outstandingDebt - (totalDebt - totalInterest)
+            amount_: (outstandingDebt > totalPrinciple)
+                ? outstandingDebt - totalPrinciple
                 : 0
         });
 
@@ -260,14 +261,14 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- CALLBACKS -----------------------------------------------------
 
-    /// @notice Overridden callback to decrement loan receivables.
-    /// @param *unused loadID_ of the load.
-    /// @param amount_ repaid (in DAI).
-    function _onRepay(uint256, uint256 amount_) internal override {
-        _sweepIntoDSR(amount_);
+    /// @notice Overridden callback to decrement interest receivables.
+    function _onRepay(uint256, uint256 principlePaid_, uint256 interestPaid_) internal override {
+        _sweepIntoDSR(principlePaid_ + interestPaid_);
 
         // Decrement loan receivables.
-        receivables = (receivables > amount_) ? receivables - amount_ : 0;
+        interestReceivable = (interestReceivable > interestPaid_)
+            ? interestReceivable - interestPaid_
+            : 0;
     }
     
     /// @notice Unused callback since rollovers are handled by the clearinghouse.

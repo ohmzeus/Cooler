@@ -156,21 +156,23 @@ contract Cooler is Clone {
 
         if (block.timestamp > loan.expiry) revert Default();
 
-        uint256 totalDebt = loan.amount + loan.interest;
-
         // Cap the repayment to the total debt of the loan
+        uint256 totalDebt = loan.principle + loan.interestDue;
         if (repayment_ > totalDebt) repayment_ = totalDebt;
 
-        uint256 decollateralized = (loan.collateral * repayment_) / loan.amount;
+        uint256 decollateralized = (loan.collateral * repayment_) / loan.principle;
         if (decollateralized == 0) revert ZeroCollateralReturned();
 
         // Need to repay interest first, then any extra goes to paying down principle.
+        uint256 interestPaid;
         uint256 remainder;
         if (repayment_ >= loan.interestDue) {
             remainder = repayment_ - loan.interestDue;
+            interestPaid = loan.interestDue;
             loan.interestDue = 0;
         } else {
             loan.interestDue -= repayment_;
+            interestPaid = repayment_;
         }
 
         loan.principle -= remainder;
@@ -187,7 +189,8 @@ contract Cooler is Clone {
         factory().newEvent(loanID_, CoolerFactory.Events.RepayLoan, repayment_);
 
         // If necessary, trigger lender callback.
-        if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, repayment_);
+        if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, remainder, interestPaid);
+
         return decollateralized;
     }
 
@@ -199,7 +202,7 @@ contract Cooler is Clone {
         if (block.timestamp > loan.expiry) revert Default();
 
         // Update loan terms with original interest and expiry.
-        loan.interest = loan.origInterest;
+        loan.interestDue = loan.origInterest;
         loan.expiry = block.timestamp + loan.origDuration;
 
         // Save updated loan info in storage.
@@ -250,7 +253,7 @@ contract Cooler is Clone {
                 origInterest: interest,
                 origDuration: req.duration,
                 principle: req.amount,
-                interest: interest,
+                interestDue: interest,
                 collateral: collat,
                 loanStart: block.timestamp,
                 expiry: block.timestamp + req.duration,
@@ -287,7 +290,7 @@ contract Cooler is Clone {
 
         // If necessary, trigger lender callback.
         if (loan.callback)
-            CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
+            CoolerCallback(loan.lender).onDefault(loanID_, loan.principle, loan.interestDue, loan.collateral);
 
         return (loan.amount, loan.interest, loan.collateral, block.timestamp - loan.expiry);
     }

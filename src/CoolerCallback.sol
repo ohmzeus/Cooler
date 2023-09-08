@@ -27,9 +27,9 @@ abstract contract CoolerCallback {
     }
 
     /// @notice Callback function that handles repayments.
-    function onRepay(uint256 loanID_, uint256 amount_) external { 
+    function onRepay(uint256 loanID_, uint256 principlePaid_, uint256 interestPaid_) external { 
         if(!factory.created(msg.sender)) revert OnlyFromFactory();
-        _onRepay(loanID_, amount_);
+        _onRepay(loanID_, principlePaid_, interestPaid_);
     }
 
     /// @notice Callback function that handles rollovers.
@@ -39,19 +39,19 @@ abstract contract CoolerCallback {
     }
 
     /// @notice Callback function that handles defaults.
-    function onDefault(uint256 loanID_, uint256 debt, uint256 collateral) external {
+    function onDefault(uint256 loanID_, uint256 principle, uint256 interest, uint256 collateral) external {
         if(!factory.created(msg.sender)) revert OnlyFromFactory();
-        _onDefault(loanID_, debt, collateral);
+        _onDefault(loanID_, principle, interest, collateral);
     }
 
     // --- INTERNAL FUNCTIONS ------------------------------------------------
 
     /// @notice Callback function that handles repayments. Override for custom logic.
-    function _onRepay(uint256 loanID_, uint256 amount_) internal virtual;
+    function _onRepay(uint256 loanID_, uint256 principlePaid_, uint256 interestPaid_) internal virtual;
 
     /// @notice Callback function that handles rollovers.
     function _onRoll(uint256 loanID_, uint256 newDebt, uint256 newCollateral) internal virtual;
 
     /// @notice Callback function that handles defaults.
-    function _onDefault(uint256 loanID_, uint256 debt, uint256 collateral) internal virtual;
+    function _onDefault(uint256 loanID_, uint256 principle_, uint256 interestDue_, uint256 collateral) internal virtual;
 }
