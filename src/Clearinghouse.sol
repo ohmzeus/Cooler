@@ -8,8 +8,6 @@ import {TRSRYv1} from "olympus-v3/modules/TRSRY/TRSRY.v1.sol";
 import {MINTRv1} from "olympus-v3/modules/MINTR/MINTR.v1.sol";
 import "olympus-v3/Kernel.sol";
 
-import {TransferHelper} from "olympus-v3/libraries/TransferHelper.sol";
-
 import {IStaking} from "interfaces/IStaking.sol";
 
 import {CoolerFactory, Cooler} from "src/CoolerFactory.sol";
@@ -25,7 +23,6 @@ import {CoolerCallback} from "src/CoolerCallback.sol";
 ///         Although the Cooler contracts allow lenders to transfer ownership of their repayment rights, the
 ///         Clearinghouse doesn't implement any functions to use that feature.
 contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
-    using TransferHelper for ERC20;
 
     // --- ERRORS ----------------------------------------------------
 
@@ -111,7 +108,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
 
         // Approve MINTR for burning OHM (called here so that it is re-approved on updates)
-        ohm.safeApprove(address(MINTR), type(uint256).max);
+        ohm.approve(address(MINTR), type(uint256).max);
     }
 
     /// @notice Default framework setup. Request permissions for interacting with olympus-v3 modules.
