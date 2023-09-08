@@ -41,8 +41,8 @@ contract Cooler is Clone {
     /// @notice A request is converted to a loan when a lender clears it.
     struct Loan {
         Request request;        // Loan terms specified in the request.
-        uint256 amount;         // Amount of debt owed to the lender.
-        uint256 unclaimed;      // Amount of debt tokens repaid but unclaimed.
+        uint256 principle;      // Amount of principle debt owed to the lender.
+        uint256 interest;       // Interest owed to the lender.
         uint256 collateral;     // Amount of collateral pledged.
         uint256 loanStart;      // Time when the loan was granted.
         uint256 expiry;         // Time when the loan defaults.
@@ -194,23 +194,18 @@ contract Cooler is Clone {
         if (msg.sender != loan.lender) revert OnlyApproved();
         if (block.timestamp > loan.expiry) revert Default();
 
-        if (amount_ > loan.amount) amount_ = loan.amount;
-
-        // Update loan memory.
+        // Update loan terms with new interest and expiry.
         loan.interest = newInterest_;
         loan.expiry = newExpiry_;
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;
 
-        // Transfer repaid debt back to the lender and (de)collateral back to the owner.
+        // Transfer repaid debt back to the lender
         debt().safeTransferFrom(msg.sender, loan.lender, amount_);
 
         // Log the event.
         factory().newEvent(loanID_, CoolerFactory.Events.ExtendLoan, amount_);
-
-        // If necessary, trigger lender callback.
-        if (loan.callback) CoolerCallback(loan.lender).onExtend(loanID_, amount_);
     }
 
     /// @notice Roll a loan over with new terms.
@@ -250,12 +245,6 @@ contract Cooler is Clone {
         IDelegate(address(collateral())).delegate(to_);
     }
 
-    // TODO MAKE SURE TO REMOVE DELEGATION ON REPAY AND DEFAULT
-    function _removeDelegation() internal {
-        if (msg.sender != owner()) revert OnlyApproved();
-        IDelegate(address(collateral())).delegate(address(0)); // TODO does this work?
-    }
-
     // --- LENDER ----------------------------------------------------
 
     /// @notice Fill a requested loan as a lender.
@@ -287,8 +276,8 @@ contract Cooler is Clone {
         loans.push(
             Loan({
                 request: req,
-                amount: req.amount + interest,
-                unclaimed: 0,
+                principle: req.amount + interest,
+                interest: interest,
                 collateral: collat,
                 loanStart: block.timestamp,
                 expiry: expiration,
@@ -325,7 +314,7 @@ contract Cooler is Clone {
 
         // If necessary, trigger lender callback.
         if (loan.callback) CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
-        return (loan.amount, loan.collateral, block.timestamp - loan.expiry);
+        return (loan.amount, loan.interest, loan.collateral, block.timestamp - loan.expiry);
     }
 
     /// @notice Approve transfer of loan ownership rights to a new address.

@@ -142,8 +142,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         gOHM.transferFrom(msg.sender, address(this), collateral);
 
         // Increment interest to be expected
-        (uint256 loan, uint256 interest) = getLoanForCollateral(collateral);
-        // TODO verify loan == amount_?
+        (, uint256 interest) = getLoanForCollateral(collateral);
         interestReceivable += interest;
 
         // Create a new loan request.
@@ -160,6 +159,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // let sender pay current interest due and extend loan to DURATION
     function extendLoan(Cooler cooler_, uint256 loanID_) external {
+        // Attempt a clearinghouse <> treasury rebalance.
+        rebalance();
+
         // Validate that cooler was deployed by the trusted factory.
         if (!factory.created(address(cooler_))) revert OnlyFromFactory();
 
@@ -174,16 +176,17 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         dai.approve(msg.sender, interestDue);
         dai.transferFrom(msg.sender, address(this), interestDue);
 
-        // TODO finish this logic
-        // Extend loan by DURATION and update interest expected on repay
-        uint256 newInterestDue = interestForLoan(cooler_.getLoan(loanID_).principle, DURATION);
-        uint256 newExpiry = block.timestamp + DURATION;
 
-        // Extend loan.
+        // Extend loan by DURATION and update interest expected on repay
+        uint256 newInterestDue = interestForLoan(principle, DURATION);
+        uint256 newExpiry = block.timestamp + DURATION;
         cooler_.extendLoanTerms(loanID_, newInterestDue, newExpiry);
 
-        // Overwrite interest due with new interest due
-        receivables = newInterestDue;
+        // TODO need to simplify this
+        // Remove interest due from receivables
+        interestReceivables -= interestDue;
+        // Increment receivables with new interest due
+        interestReceivable += newInterestDue;
     }
 
     /// @notice Batch several default claims to save gas.
@@ -204,8 +207,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
             
             // Claim defaults and update cached metrics.
-            (uint256 debt, uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
-            (, uint256 interest) = getLoanForCollateral(collateral);
+            (uint256 debt, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
 
             unchecked {
                 // Cannot overflow due to max supply limits for both tokens
@@ -218,10 +220,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
             // Cap rewards to 5% of the collateral to avoid OHM holder's dillution.
             uint256 maxAuctionReward = collateral * 5e16 / 1e18;
+
             // Cap rewards to avoid exorbitant amounts.
             uint256 maxReward = (maxAuctionReward < MAX_REWARD)
                 ? maxAuctionReward
                 : MAX_REWARD;
+
             // Calculate rewards based on the elapsed time since default.
             keeperRewards = (elapsed < 7 days)
                 ? keeperRewards + maxReward * elapsed / 7 days
@@ -398,9 +402,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  collateral_ amount of gOHM.
     /// @return debt (amount to be lent + interest) for a given collateral amount.
     function getLoanForCollateral(uint256 collateral_) public view returns (uint256) {
-        uint256 interestPercent = (INTEREST_RATE * DURATION) / 365 days;
         uint256 principle = collateral_ * LOAN_TO_COLLATERAL / 1e18;
-        //uint256 interest = loan * interestPercent / 1e18;
         uint256 interest = interestForLoan(principle, DURATION);
         return (principle, interest);
     }
