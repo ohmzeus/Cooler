@@ -44,7 +44,7 @@ contract Cooler is Clone {
         uint256 principle;      // Amount of principle debt owed to the lender.
         uint256 interestDue;    // Interest owed to the lender.
         uint256 collateral;     // Amount of collateral pledged.
-        uint256 loanStart;      // Time when the loan was granted.
+        uint256 start;          // Time when the loan was granted.
         uint256 expiry;         // Time when the loan defaults.
         address lender;         // Lender's address.
         address recipient;      // Recipient of repayments.
@@ -173,9 +173,9 @@ contract Cooler is Clone {
         // We pay back only if user has paid back principle. This can be 0.
         uint256 decollateralized;
         if (remainder > 0) {
-            loan.principle -= remainder;
-
             decollateralized = (loan.collateral * remainder) / loan.principle;
+            
+            loan.principle -= remainder;
             loan.collateral -= decollateralized;
         }
 
@@ -258,7 +258,7 @@ contract Cooler is Clone {
                 principle: req.amount,
                 interestDue: interest,
                 collateral: collat,
-                loanStart: block.timestamp,
+                start: block.timestamp,
                 expiry: block.timestamp + req.duration,
                 lender: msg.sender,
                 recipient: recipient_,
@@ -313,8 +313,9 @@ contract Cooler is Clone {
     function transferOwnership(uint256 loanID_) external {
         if (msg.sender != approvals[loanID_]) revert OnlyApproved();
 
-        // Update the load lender.
+        // Update the load lender and the recipient.
         loans[loanID_].lender = msg.sender;
+        loans[loanID_].recipient = msg.sender;
         // Clear transfer approvals.
         approvals[loanID_] = address(0);
     }

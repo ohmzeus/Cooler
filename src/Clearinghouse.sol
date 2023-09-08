@@ -168,18 +168,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Ensure we are the lender
         if (loan.lender != address(this)) revert OnlyLender();
 
-        // Ensure caller is the borrower
-        if (cooler_.owner() != msg.sender) revert OnlyBorrower();
-
-        // Calculate interest due
-        uint256 durationPassed = block.timestamp - loan.loanStart;
+        // Calculate interest due and new interest.
+        uint256 durationPassed = block.timestamp - loan.start;
         uint256 interestDue = interestForLoan(loan.principle, durationPassed);
         uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
 
-        // Remove interest due, then add new interest
+        // Remove interest due, then add new interest.
         interestReceivables += interestNew - interestDue;
 
-        // Transfer in interest due
+        // Transfer in interest due from the caller.
         dai.approve(msg.sender, interestDue);
         dai.transferFrom(
             msg.sender,
@@ -187,7 +184,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             interestDue
         );
 
-        // Signal to cooler to repay interest due and extend loan
+        // Signal to cooler that loan can be extended.
         cooler_.extendLoanTerms(loanID_);
     }
 
