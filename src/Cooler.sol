@@ -160,9 +160,6 @@ contract Cooler is Clone {
         uint256 totalDebt = loan.principle + loan.interestDue;
         if (repayment_ > totalDebt) repayment_ = totalDebt;
 
-        uint256 decollateralized = (loan.collateral * repayment_) / loan.principle;
-        if (decollateralized == 0) revert ZeroCollateralReturned();
-
         // Need to repay interest first, then any extra goes to paying down principle.
         uint256 interestPaid;
         uint256 remainder;
@@ -175,15 +172,21 @@ contract Cooler is Clone {
             interestPaid = repayment_;
         }
 
-        loan.principle -= remainder;
-        loan.collateral -= decollateralized;
+        // We pay back only if user has paid back principle. This can be 0.
+        uint256 decollateralized;
+        if (remainder > 0) {
+            loan.principle -= remainder;
+
+            decollateralized = (loan.collateral * remainder) / loan.principle;
+            loan.collateral -= decollateralized;
+        }
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;
 
-        // Transfer repaid debt back to the lender and (de)collateral back to the owner.
+        // Transfer repaid debt back to the lender and collateral back to the owner if applicable
         debt().safeTransferFrom(msg.sender, loan.recipient, repayment_);
-        collateral().safeTransfer(owner(), decollateralized);
+        if (decollateralized > 0) collateral().safeTransfer(owner(), decollateralized);
 
         // Log the event.
         factory().newEvent(loanID_, CoolerFactory.Events.RepayLoan, repayment_);
@@ -228,7 +231,7 @@ contract Cooler is Clone {
     /// @return loanID of the granted loan. Equivalent to the index of loan in loans[].
     function clearRequest(
         uint256 reqID_,
-        bool recipient_,
+        address recipient_,
         bool isCallback_
     ) external returns (uint256 loanID) {
         Request memory req = requests[reqID_];
@@ -292,7 +295,7 @@ contract Cooler is Clone {
         if (loan.callback)
             CoolerCallback(loan.lender).onDefault(loanID_, loan.principle, loan.interestDue, loan.collateral);
 
-        return (loan.amount, loan.interest, loan.collateral, block.timestamp - loan.expiry);
+        return (loan.principle, loan.interestDue, loan.collateral, block.timestamp - loan.expiry);
     }
 
     /// @notice Approve transfer of loan ownership rights to a new address.
@@ -323,7 +326,7 @@ contract Cooler is Clone {
         if (msg.sender != loans[loanID_].lender) revert OnlyApproved();
 
         // Update the repayment method.
-        loans[loanID_].repayTo = recipient_;
+        loans[loanID_].recipient = recipient_;
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
@@ -333,22 +336,6 @@ contract Cooler is Clone {
     /// @param  loanToCollateral_ ratio for loan.
     function collateralFor(uint256 amount_, uint256 loanToCollateral_) public view returns (uint256) {
         return (amount_ * (10 ** collateral().decimals())) / loanToCollateral_;
-    }
-
-    /// @notice compute collateral needed to roll loan.
-    /// @param  loanID_ of loan to roll.
-    function newCollateralFor(uint256 loanID_) public view returns (uint256) {
-        Loan memory loan = loans[loanID_];
-        // Accounts for all outstanding debt (borrowed amount + interest).
-        uint256 neededCollateral = collateralFor(
-            loan.amount,
-            loan.request.loanToCollateral
-        );
-
-        return
-            neededCollateral > loan.collateral ?
-            neededCollateral - loan.collateral :
-            0;
     }
 
     /// @notice Compute interest cost on amount for duration at given annualized rate.
