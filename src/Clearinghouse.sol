@@ -413,7 +413,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     
     /// @notice Get total receivable DAI for the treasury
     /// @dev    Includes both principle and interest
-    function getTotalReceivable() external view returns (uint256) {
+    function getTotalReceivables() external view returns (uint256) {
         return TRSRY.reserveDebt(dai, address(this)) + interestReceivables;
     }
 }

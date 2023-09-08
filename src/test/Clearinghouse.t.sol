@@ -252,15 +252,38 @@
 //         // Loan amount cannot exceed Clearinghouse funding
 //         loanAmount_ = bound(loanAmount_, 0, clearinghouse.FUND_AMOUNT());
 
-//         (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
+//         // Create the Cooler
+//         vm.prank(user);
+//         Cooler cooler = Cooler(factory.generateCooler(gohm, dai));
+
+//         // Ensure user has enough collateral
+//         uint256 gohmNeeded = cooler.collateralFor(loanAmount_, clearinghouse.LOAN_TO_COLLATERAL());
+//         _fundUser(gohmNeeded);
+
+//         vm.prank(user);
+//         uint256 loanID = clearinghouse.lendToCooler(cooler, loanAmount_);
 
 //         // Check: balances
 //         assertEq(gohm.balanceOf(address(cooler)), gohmNeeded);
 //         assertEq(dai.balanceOf(address(user)), loanAmount_);
 //         assertEq(dai.balanceOf(address(cooler)), 0);
+
+//         Cooler.Loan memory loan = cooler.getLoan(loanID);
+
 //         // Check: clearinghouse storage
-//         assertEq(clearinghouse.interestReceivables(), clearinghouse.interestForLoan(loanAmount_, clearinghouse.DURATION()));
-//         assertApproxEqAbs(clearinghouse.interestReceivables(), cooler.getLoan(loanID).principle, 1e4);
+//         //assertEq(clearinghouse.getTotalReceivables(), loan.interestDue + loan.principle, "getTotalReceivables");
+//         assertApproxEqAbs(
+//             clearinghouse.interestReceivables(),
+//             loan.interestDue,
+//             1e4,
+//             "interestReceivables (Loan)"
+//         );
+//         assertApproxEqAbs(
+//             clearinghouse.interestReceivables(),
+//             clearinghouse.interestForLoan(loanAmount_, clearinghouse.DURATION()),
+//             1e4,
+//             "interestReceivables (CH)"
+//         );
 //     }
 
 //     // --- ROLL LOAN -----------------------------------------------------
@@ -665,5 +688,12 @@
 //         vm.prank(others);
 //         vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
 //         clearinghouse.claimDefaulted(coolers, ids);
+//     }
+
+    
+
+//     function testPOC() public {
+//         (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(2999);
+//         assertEq(gohmNeeded, 0);
 //     }
 // }

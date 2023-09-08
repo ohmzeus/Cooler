@@ -23,8 +23,6 @@ contract Cooler is Clone {
     error Deactivated();
     error Default();
     error NoDefault();
-    error NotRollable();
-    error ZeroCollateralReturned();
     error NotCoolerCallback();
 
     // --- DATA STRUCTURES -------------------------------------------
@@ -93,7 +91,7 @@ contract Cooler is Clone {
     ///         Collateral is taken at time of request.
     /// @param  amount_ of debt tokens to borrow.
     /// @param  interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
-    /// @param  loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
+    /// @param  loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**collateral().decimals().
     /// @param  duration_ of loan tenure in seconds.
     /// @return reqID of the created request. Equivalent to the index of request in requests[].
     function requestLoan(
@@ -334,7 +332,7 @@ contract Cooler is Clone {
 
     /// @notice Compute collateral needed for a desired loan amount at given loan to collateral ratio.
     /// @param  principle_ amount of debt tokens.
-    /// @param  loanToCollateral_ ratio for loan.
+    /// @param  loanToCollateral_ ratio for loan. Expressed in 10**collateral().decimals().
     function collateralFor(uint256 principle_, uint256 loanToCollateral_) public view returns (uint256) {
         return (principle_ * (10 ** collateral().decimals())) / loanToCollateral_;
     }
