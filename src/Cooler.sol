@@ -279,7 +279,7 @@ contract Cooler is Clone {
     /// @notice Claim collateral upon loan default.
     /// @param loanID_ index of loan in loans[]
     /// @return defaulted debt by the borrower, collateral kept by the lender, elapsed time since expiry.
-    function claimDefaulted(uint256 loanID_) external returns (uint256, uint256, uint256) {
+    function claimDefaulted(uint256 loanID_) external returns (uint256, uint256, uint256, uint256) {
         Loan memory loan = loans[loanID_];
         delete loans[loanID_];
 

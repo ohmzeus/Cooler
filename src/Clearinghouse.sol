@@ -271,13 +271,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             : 0;
     }
     
-    /// @notice Unused callback since rollovers are handled by the clearinghouse.
-    /// @dev Overriden and left empty to save gas.
-    function _onRoll(uint256, uint256, uint256) internal override {}
-
     /// @notice Unused callback since defaults are handled by the clearinghouse.
     /// @dev Overriden and left empty to save gas.
-    function _onDefault(uint256, uint256, uint256) internal override {}
+    function _onDefault(uint256, uint256, uint256, uint256) internal override {}
 
     // --- FUNDING ---------------------------------------------------
 
@@ -405,7 +401,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice view function computing loan for a collateral amount.
     /// @param  collateral_ amount of gOHM.
     /// @return debt (amount to be lent + interest) for a given collateral amount.
-    function getLoanForCollateral(uint256 collateral_) public view returns (uint256) {
+    function getLoanForCollateral(uint256 collateral_) public view returns (uint256, uint256) {
         uint256 principle = collateral_ * LOAN_TO_COLLATERAL / 1e18;
         uint256 interest = interestForLoan(principle, DURATION);
         return (principle, interest);
