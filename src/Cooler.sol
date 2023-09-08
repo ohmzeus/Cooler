@@ -41,8 +41,10 @@ contract Cooler is Clone {
     /// @notice A request is converted to a loan when a lender clears it.
     struct Loan {
         Request request;        // Loan terms specified in the request.
+        uint256 origInterest;   // Interest owed at the time of loan creation.
+        uint256 origDuration;   // Initial duration of the loan.
         uint256 principle;      // Amount of principle debt owed to the lender.
-        uint256 interest;       // Interest owed to the lender.
+        uint256 interestDue;    // Interest owed to the lender.
         uint256 collateral;     // Amount of collateral pledged.
         uint256 loanStart;      // Time when the loan was granted.
         uint256 expiry;         // Time when the loan defaults.
@@ -147,95 +149,64 @@ contract Cooler is Clone {
     ///         usage of `msg.sender` prevents any economical benefit to the
     ///         attacker, since they would be repaying the loan themselves.
     /// @param  loanID_ index of loan in loans[]
-    /// @param  repaid_ debt tokens to be repaid.
+    /// @param  repayment_ debt tokens to be repaid.
     /// @return collateral given back to the borrower.
-    function repayLoan(uint256 loanID_, uint256 repaid_) external returns (uint256) {
+    function repayLoan(uint256 loanID_, uint256 repayment_) external returns (uint256) {
         Loan memory loan = loans[loanID_];
 
         if (block.timestamp > loan.expiry) revert Default();
 
-        if (repaid_ > loan.amount) repaid_ = loan.amount;
+        uint256 totalDebt = loan.amount + loan.interest;
 
-        uint256 decollateralized = (loan.collateral * repaid_) / loan.amount;
+        // Cap the repayment to the total debt of the loan
+        if (repayment_ > totalDebt) repayment_ = totalDebt;
+
+        uint256 decollateralized = (loan.collateral * repayment_) / loan.amount;
         if (decollateralized == 0) revert ZeroCollateralReturned();
 
-        // Update loan memory.
-        loan.amount -= repaid_;
-        loan.collateral -= decollateralized;
-
-        address repayTo;
-        // Check whether repayment needs to be manually claimed or not.
-        if (loan.repayDirect) {
-            repayTo = loan.lender;
+        // Need to repay interest first, then any extra goes to paying down principle.
+        uint256 remainder;
+        if (repayment_ >= loan.interestDue) {
+            remainder = repayment_ - loan.interestDue;
+            loan.interestDue = 0;
         } else {
-            repayTo = address(this);
-            loan.unclaimed += repaid_;
+            loan.interestDue -= repayment_;
         }
+
+        loan.principle -= remainder;
+        loan.collateral -= decollateralized;
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;
 
         // Transfer repaid debt back to the lender and (de)collateral back to the owner.
-        debt().safeTransferFrom(msg.sender, repayTo, repaid_);
+        debt().safeTransferFrom(msg.sender, loan.recipient, repayment_);
         collateral().safeTransfer(owner(), decollateralized);
 
         // Log the event.
-        factory().newEvent(loanID_, CoolerFactory.Events.RepayLoan, repaid_);
+        factory().newEvent(loanID_, CoolerFactory.Events.RepayLoan, repayment_);
 
         // If necessary, trigger lender callback.
-        if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, repaid_);
+        if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, repayment_);
         return decollateralized;
     }
 
-    // Allow lender to extend loan for borrower. Any payments happen by the lender.
-    function extendLoanTerms(uint256 loanID_, uint256 newInterest_, uint256 newExpiry_) external {
+    // Allow lender to extend loan for borrower. Any payments are done by the caller.
+    function extendLoanTerms(uint256 loanID_) external {
         Loan memory loan = loans[loanID_];
 
         if (msg.sender != loan.lender) revert OnlyApproved();
         if (block.timestamp > loan.expiry) revert Default();
 
-        // Update loan terms with new interest and expiry.
-        loan.interest = newInterest_;
-        loan.expiry = newExpiry_;
+        // Update loan terms with original interest and expiry.
+        loan.interest = loan.origInterest;
+        loan.expiry = block.timestamp + loan.origDuration;
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;
-
-        // Transfer repaid debt back to the lender
-        debt().safeTransferFrom(msg.sender, loan.lender, amount_);
 
         // Log the event.
-        factory().newEvent(loanID_, CoolerFactory.Events.ExtendLoan, amount_);
-    }
-
-    /// @notice Roll a loan over with new terms.
-    ///         provideNewTermsForRoll must have been called beforehand by the lender.
-    /// @param  loanID_ index of loan in loans[].
-    function rollLoan(uint256 loanID_) external {
-        Loan memory loan = loans[loanID_];
-
-        if (block.timestamp > loan.expiry) revert Default();
-        if (!loan.request.active) revert NotRollable();
-
-        // Check whether rolling the loan requires pledging more collateral or not (if there was a previous repayment).
-        uint256 newCollateral = newCollateralFor(loanID_);
-        uint256 newDebt = interestFor(loan.amount, loan.request.interest, loan.request.duration);
-
-        // Update memory accordingly.
-        loan.amount += newDebt;
-        loan.collateral += newCollateral;
-        loan.expiry += loan.request.duration;
-        loan.request.active = false;
-
-        // Save updated loan info in storage.
-        loans[loanID_] = loan;
-
-        if (newCollateral > 0) {
-            collateral().safeTransferFrom(msg.sender, address(this), newCollateral);
-        }
-
-        // If necessary, trigger lender callback.
-        if (loan.callback) CoolerCallback(loan.lender).onRoll(loanID_, newDebt, newCollateral);
+        factory().newEvent(loanID_, CoolerFactory.Events.ExtendLoan, 0);
     }
 
     /// @notice Delegate voting power on collateral.
@@ -249,12 +220,12 @@ contract Cooler is Clone {
 
     /// @notice Fill a requested loan as a lender.
     /// @param  reqID_ index of request in requests[].
-    /// @param  repayDirect_ lender should input false if concerned about debt token blacklisting.
+    /// @param  recipient_ address to repay the loan to.
     /// @param  isCallback_ true if the lender implements the CoolerCallback abstract. False otherwise.
     /// @return loanID of the granted loan. Equivalent to the index of loan in loans[].
     function clearRequest(
         uint256 reqID_,
-        bool repayDirect_,
+        bool recipient_,
         bool isCallback_
     ) external returns (uint256 loanID) {
         Request memory req = requests[reqID_];
@@ -271,18 +242,20 @@ contract Cooler is Clone {
         // Calculate and store loan terms.
         uint256 interest = interestFor(req.amount, req.interest, req.duration);
         uint256 collat = collateralFor(req.amount, req.loanToCollateral);
-        uint256 expiration = block.timestamp + req.duration;
         loanID = loans.length;
+
         loans.push(
             Loan({
                 request: req,
-                principle: req.amount + interest,
+                origInterest: interest,
+                origDuration: req.duration,
+                principle: req.amount,
                 interest: interest,
                 collateral: collat,
                 loanStart: block.timestamp,
-                expiry: expiration,
+                expiry: block.timestamp + req.duration,
                 lender: msg.sender,
-                repayDirect: repayDirect_,
+                recipient: recipient_,
                 callback: isCallback_
             })
         );
@@ -313,7 +286,9 @@ contract Cooler is Clone {
         factory().newEvent(loanID_, CoolerFactory.Events.DefaultLoan, 0);
 
         // If necessary, trigger lender callback.
-        if (loan.callback) CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
+        if (loan.callback)
+            CoolerCallback(loan.lender).onDefault(loanID_, loan.amount, loan.collateral);
+
         return (loan.amount, loan.interest, loan.collateral, block.timestamp - loan.expiry);
     }
 

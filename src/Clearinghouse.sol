@@ -152,41 +152,42 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Clear the created loan request by providing enough DAI.
         sdai.withdraw(amount_, address(this), address(this));
         dai.approve(address(cooler_), amount_);
-        uint256 loanID = cooler_.clearRequest(reqID, true, true);
+        uint256 loanID = cooler_.clearRequest(reqID, address(this), true);
         
         return loanID;
     }
 
-    // let sender pay current interest due and extend loan to DURATION
+    // Repay current loan interest due then extend loan duration and interest to original terms
     function extendLoan(Cooler cooler_, uint256 loanID_) external {
         // Attempt a clearinghouse <> treasury rebalance.
         rebalance();
 
-        // Validate that cooler was deployed by the trusted factory.
-        if (!factory.created(address(cooler_))) revert OnlyFromFactory();
+        // Ensure we are the lender
+        if (cooler_.getLoan(loanID_).lender != address(this)) revert OnlyLender();
 
-        // Validate cooler collateral and debt tokens.
-        if (cooler_.collateral() != gOHM || cooler_.debt() != dai) revert BadEscrow();
+        // Ensure caller is the borrower
+        if (cooler_.owner() != msg.sender) revert OnlyBorrower();
 
-        // Pay off interest due
+        // Calculate interest due
         uint256 principle = cooler_.getLoan(loanID_).principle;
         uint256 durationPassed = block.timestamp - cooler_.getLoan(loanID_).loanStart;
         uint256 interestDue = interestForLoan(principle, durationPassed);
 
+        // Transfer in interest due
         dai.approve(msg.sender, interestDue);
-        dai.transferFrom(msg.sender, address(this), interestDue);
+        dai.transferFrom(
+            msg.sender,
+            cooler_.getLoan(loanID).recipient,
+            interestDue
+        );
 
-
-        // Extend loan by DURATION and update interest expected on repay
-        uint256 newInterestDue = interestForLoan(principle, DURATION);
-        uint256 newExpiry = block.timestamp + DURATION;
-        cooler_.extendLoanTerms(loanID_, newInterestDue, newExpiry);
+        // Signal to cooler to repay interest due and extend loan
+        cooler_.extendLoanTerms(loanID_);
 
         // TODO need to simplify this
-        // Remove interest due from receivables
+        // Remove interest due, then add new interest
         interestReceivables -= interestDue;
-        // Increment receivables with new interest due
-        interestReceivable += newInterestDue;
+        interestReceivable += cooler_.getLoan(loanID_).origInterest;
     }
 
     /// @notice Batch several default claims to save gas.
@@ -209,6 +210,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             // Claim defaults and update cached metrics.
             (uint256 debt, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
 
+            // TODO make sure recievables is updated properly with interest split
             unchecked {
                 // Cannot overflow due to max supply limits for both tokens
                 totalDebt += debt;
@@ -232,6 +234,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
                 : keeperRewards + maxReward;
         }
 
+        // TODO make sure this is correct
         // Decrement loan receivables.
         receivables = (receivables > totalDebt) ? receivables - totalDebt : 0;
 
