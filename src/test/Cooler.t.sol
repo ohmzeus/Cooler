@@ -1074,4 +1074,75 @@ contract CoolerTest is Test {
         vm.expectRevert(Cooler.Default.selector);
         cooler.rollLoan(loanID);
     }
+
+    // -- collateralFor ------------------------------------------------------
+
+    function test_collateralFor_fuzzDecimals(uint8 collateralDecimals_, uint8 debtDecimals_) public {
+        uint8 collateralDecimals = uint8(bound(collateralDecimals_, 6, 18));
+        uint8 debtDecimals = uint8(bound(debtDecimals_, 6, 18));
+
+        // Create the tokens
+        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
+        debt = new MockERC20("Debt", "DEBT", debtDecimals);
+
+        // Instantiate a new cooler
+        cooler = _initCooler();
+
+        // loanToCollateral is 3000 in terms of debt decimals
+        uint256 loanToCollateral = 3000 * 10 ** debtDecimals;
+        uint256 amount = 90000 * 10 ** debtDecimals;
+        uint256 expectedCollateral = 30 * 10 ** collateralDecimals; // 90000 / 3000 = 30
+
+        // collateralFor() should return the correct amount of collateral tokens
+        assertEq(cooler.collateralFor(amount, loanToCollateral), expectedCollateral);
+    }
+
+    function test_collateralFor_fuzzAmounts_debtDecimalsLow(uint256 amount_, uint256 loanToCollateral_) public {
+        uint8 collateralDecimals = 18;
+        uint8 debtDecimals = 6;
+
+        // Both values are in terms of debt decimals
+        uint256 loanToCollateral = bound(loanToCollateral_, 1, 100000 * 10 ** debtDecimals);
+        uint256 amount = bound(amount_, 1, 100000 * 10 ** debtDecimals);
+
+        // Create the tokens
+        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
+        debt = new MockERC20("Debt", "DEBT", debtDecimals);
+
+        // Instantiate a new cooler
+        cooler = _initCooler();
+
+        uint256 expectedCollateral = amount * 10 ** collateralDecimals / loanToCollateral;
+
+        // collateralFor() should return the correct amount of collateral tokens
+        uint256 collateralFor = cooler.collateralFor(amount, loanToCollateral);
+        assertEq(collateralFor, expectedCollateral);
+        assertFalse(collateralFor == 0);
+    }
+
+    function test_collateralFor_fuzzAmounts_collateralDecimalsLow(uint256 amount_, uint256 loanToCollateral_) public {
+        uint8 collateralDecimals = 6;
+        uint8 debtDecimals = 18;
+
+        // Both values are in terms of debt decimals
+        uint256 loanToCollateral = bound(loanToCollateral_, 1, 100000 * 10 ** debtDecimals);
+        uint256 amount = bound(amount_, 1, 100000 * 10 ** debtDecimals);
+        console2.log("amount: %s", amount);
+        console2.log("loanToCollateral: %s", loanToCollateral);
+
+        // Create the tokens
+        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
+        debt = new MockERC20("Debt", "DEBT", debtDecimals);
+
+        // Instantiate a new cooler
+        cooler = _initCooler();
+
+        uint256 expectedCollateral = amount * 10 ** collateralDecimals / loanToCollateral;
+        console2.log("expectedCollateral: %s", expectedCollateral);
+
+        // collateralFor() should return the correct amount of collateral tokens
+        uint256 collateralFor = cooler.collateralFor(amount, loanToCollateral);
+        assertEq(collateralFor, expectedCollateral);
+        assertFalse(collateralFor == 0);
+    }
 }
