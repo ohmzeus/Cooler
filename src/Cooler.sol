@@ -5,9 +5,9 @@ import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {Clone} from "clones/Clone.sol";
 
-import {IDelegate} from "interfaces/IDelegate.sol";
-import {CoolerFactory} from "src/CoolerFactory.sol";
-import {CoolerCallback} from "src/CoolerCallback.sol";
+import {IDelegate} from "./interfaces/IDelegate.sol";
+import {CoolerFactory} from "./CoolerFactory.sol";
+import {CoolerCallback} from "./CoolerCallback.sol";
 
 /// @title  Cooler Loans.
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
@@ -44,9 +44,10 @@ contract Cooler is Clone {
         uint256 amount;         // Amount of debt owed to the lender.
         uint256 unclaimed;      // Amount of debt tokens repaid but unclaimed.
         uint256 collateral;     // Amount of collateral pledged.
+        uint256 loanStart;      // Time when the loan was granted.
         uint256 expiry;         // Time when the loan defaults.
         address lender;         // Lender's address.
-        bool repayDirect;       // If this is false, repaid tokens must be claimed by lender.
+        address recipient;      // Recipient of repayments.
         bool callback;          // If this is true, the lender must inherit CoolerCallback.
     }
 
@@ -186,6 +187,32 @@ contract Cooler is Clone {
         return decollateralized;
     }
 
+    // Allow lender to extend loan for borrower. Any payments happen by the lender.
+    function extendLoanTerms(uint256 loanID_, uint256 newInterest_, uint256 newExpiry_) external {
+        Loan memory loan = loans[loanID_];
+
+        if (msg.sender != loan.lender) revert OnlyApproved();
+        if (block.timestamp > loan.expiry) revert Default();
+
+        if (amount_ > loan.amount) amount_ = loan.amount;
+
+        // Update loan memory.
+        loan.interest = newInterest_;
+        loan.expiry = newExpiry_;
+
+        // Save updated loan info in storage.
+        loans[loanID_] = loan;
+
+        // Transfer repaid debt back to the lender and (de)collateral back to the owner.
+        debt().safeTransferFrom(msg.sender, loan.lender, amount_);
+
+        // Log the event.
+        factory().newEvent(loanID_, CoolerFactory.Events.ExtendLoan, amount_);
+
+        // If necessary, trigger lender callback.
+        if (loan.callback) CoolerCallback(loan.lender).onExtend(loanID_, amount_);
+    }
+
     /// @notice Roll a loan over with new terms.
     ///         provideNewTermsForRoll must have been called beforehand by the lender.
     /// @param  loanID_ index of loan in loans[].
@@ -223,6 +250,12 @@ contract Cooler is Clone {
         IDelegate(address(collateral())).delegate(to_);
     }
 
+    // TODO MAKE SURE TO REMOVE DELEGATION ON REPAY AND DEFAULT
+    function _removeDelegation() internal {
+        if (msg.sender != owner()) revert OnlyApproved();
+        IDelegate(address(collateral())).delegate(address(0)); // TODO does this work?
+    }
+
     // --- LENDER ----------------------------------------------------
 
     /// @notice Fill a requested loan as a lender.
@@ -257,6 +290,7 @@ contract Cooler is Clone {
                 amount: req.amount + interest,
                 unclaimed: 0,
                 collateral: collat,
+                loanStart: block.timestamp,
                 expiry: expiration,
                 lender: msg.sender,
                 repayDirect: repayDirect_,
@@ -272,44 +306,6 @@ contract Cooler is Clone {
 
         // Log the event.
         factory().newEvent(reqID_, CoolerFactory.Events.ClearRequest, 0);
-    }
-
-    /// @notice Provide new terms for loan to be rolled over.
-    /// @param  loanID_ index of loan in loans[].
-    /// @param  interest_ to pay (annualized % of 'amount_'). Expressed in DECIMALS_INTEREST.
-    /// @param  loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
-    /// @param  duration_ of loan tenure in seconds.
-    function provideNewTermsForRoll(
-        uint256 loanID_,
-        uint256 interest_,
-        uint256 loanToCollateral_,
-        uint256 duration_
-    ) external {
-        Loan storage loan = loans[loanID_];
-
-        if (msg.sender != loan.lender) revert OnlyApproved();
-
-        loan.request =
-            Request(
-                loan.amount,
-                interest_,
-                loanToCollateral_,
-                duration_,
-                true
-            );
-    }
-
-    /// @notice Claim debt tokens if repayDirect was false.
-    /// @param  loanID_ index of loan in loans[].
-    function claimRepaid(uint256 loanID_) external {
-        Loan memory loan = loans[loanID_];
-
-        // Update storage.
-        uint256 claim = loan.unclaimed;
-        delete loans[loanID_].unclaimed;
-
-        // Transfer repaid debt back to the lender.
-        debt().safeTransfer(loan.lender, claim);
     }
 
     /// @notice Claim collateral upon loan default.
@@ -353,14 +349,14 @@ contract Cooler is Clone {
         approvals[loanID_] = address(0);
     }
 
-    /// @notice Set direct repayment of a given loan.
+    /// @notice Allow lender to set repayment recipient of a given loan.
     /// @param  loanID_ of lender's loan.
-    /// @param  direct_ true if a direct repayment is desired. False otherwise.
-    function setDirectRepay(uint256 loanID_, bool direct_) external {
+    /// @param  recipient_ reciever of repayments
+    function setRepaymentAddress(uint256 loanID_, address recipient_) external {
         if (msg.sender != loans[loanID_].lender) revert OnlyApproved();
 
         // Update the repayment method.
-        loans[loanID_].repayDirect = direct_;
+        loans[loanID_].repayTo = recipient_;
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
