@@ -68,7 +68,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice timestamp at which the next rebalance can occur.
     uint256 public fundTime;
 
-    // TODO change to interest receivable
     /// @notice Outstanding interest receivables.
     /// Incremented when a loan is taken or rolled.
     /// Decremented when a loan is repaid or collateral is burned.
@@ -175,6 +174,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Calculate interest due
         uint256 durationPassed = block.timestamp - loan.loanStart;
         uint256 interestDue = interestForLoan(loan.principle, durationPassed);
+        uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
+
+        // Remove interest due, then add new interest
+        interestReceivables += interestNew - interestDue;
 
         // Transfer in interest due
         dai.approve(msg.sender, interestDue);
@@ -186,11 +189,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Signal to cooler to repay interest due and extend loan
         cooler_.extendLoanTerms(loanID_);
-
-        // TODO need to simplify this
-        // Remove interest due, then add new interest
-        interestReceivables -= interestDue;
-        interestReceivables += interestForLoan(loan.principle, loan.request.duration);
     }
 
     /// @notice Batch several default claims to save gas.
