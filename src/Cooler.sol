@@ -41,8 +41,6 @@ contract Cooler is Clone {
     /// @notice A request is converted to a loan when a lender clears it.
     struct Loan {
         Request request;        // Loan terms specified in the request.
-        uint256 origInterest;   // Interest owed at the time of loan creation.
-        uint256 origDuration;   // Initial duration of the loan.
         uint256 principle;      // Amount of principle debt owed to the lender.
         uint256 interestDue;    // Interest owed to the lender.
         uint256 collateral;     // Amount of collateral pledged.
@@ -205,8 +203,12 @@ contract Cooler is Clone {
         if (block.timestamp > loan.expiry) revert Default();
 
         // Update loan terms with original interest and expiry.
-        loan.interestDue = loan.origInterest;
-        loan.expiry = block.timestamp + loan.origDuration;
+        loan.expiry = block.timestamp + loan.request.duration;
+        loan.interestDue = interestFor(
+            loan.request.amount,
+            loan.request.interest,
+            loan.request.duration
+        );
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;
@@ -253,8 +255,6 @@ contract Cooler is Clone {
         loans.push(
             Loan({
                 request: req,
-                origInterest: interest,
-                origDuration: req.duration,
                 principle: req.amount,
                 interestDue: interest,
                 collateral: collat,
@@ -331,21 +331,21 @@ contract Cooler is Clone {
 
     // --- AUX FUNCTIONS ---------------------------------------------
 
-    /// @notice Compute collateral needed for loan amount at given loan to collateral ratio.
-    /// @param  amount_ of collateral tokens.
+    /// @notice Compute collateral needed for a desired loan amount at given loan to collateral ratio.
+    /// @param  principle_ amount of debt tokens.
     /// @param  loanToCollateral_ ratio for loan.
-    function collateralFor(uint256 amount_, uint256 loanToCollateral_) public view returns (uint256) {
-        return (amount_ * (10 ** collateral().decimals())) / loanToCollateral_;
+    function collateralFor(uint256 principle_, uint256 loanToCollateral_) public view returns (uint256) {
+        return (principle_ * (10 ** collateral().decimals())) / loanToCollateral_;
     }
 
     /// @notice Compute interest cost on amount for duration at given annualized rate.
-    /// @param  amount_ of debt tokens.
+    /// @param  principle_ amount of debt tokens.
     /// @param  rate_ of interest (annualized).
-    /// @param  duration_ of loan in seconds.
+    /// @param  duration_ of the loan in seconds.
     /// @return Interest in debt token terms.
-    function interestFor(uint256 amount_, uint256 rate_, uint256 duration_) public pure returns (uint256) {
+    function interestFor(uint256 principle_, uint256 rate_, uint256 duration_) public pure returns (uint256) {
         uint256 interest = (rate_ * duration_) / 365 days;
-        return (amount_ * interest) / DECIMALS_INTEREST;
+        return (principle_ * interest) / DECIMALS_INTEREST;
     }
 
     /// @notice Check if given loan is in default.

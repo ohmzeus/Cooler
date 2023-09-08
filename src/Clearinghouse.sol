@@ -72,7 +72,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Outstanding interest receivables.
     /// Incremented when a loan is taken or rolled.
     /// Decremented when a loan is repaid or collateral is burned.
-    uint256 public interestReceivable;
+    uint256 public interestReceivables;
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -145,7 +145,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Increment interest to be expected
         (, uint256 interest) = getLoanForCollateral(collateral);
-        interestReceivable += interest;
+        interestReceivables += interest;
 
         // Create a new loan request.
         gOHM.approve(address(cooler_), collateral);
@@ -164,16 +164,17 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Attempt a clearinghouse <> treasury rebalance.
         rebalance();
 
+        Cooler.Loan memory loan = cooler_.getLoan(loanID_);
+
         // Ensure we are the lender
-        if (cooler_.getLoan(loanID_).lender != address(this)) revert OnlyLender();
+        if (loan.lender != address(this)) revert OnlyLender();
 
         // Ensure caller is the borrower
         if (cooler_.owner() != msg.sender) revert OnlyBorrower();
 
         // Calculate interest due
-        uint256 principle = cooler_.getLoan(loanID_).principle;
-        uint256 durationPassed = block.timestamp - cooler_.getLoan(loanID_).loanStart;
-        uint256 interestDue = interestForLoan(principle, durationPassed);
+        uint256 durationPassed = block.timestamp - loan.loanStart;
+        uint256 interestDue = interestForLoan(loan.principle, durationPassed);
 
         // Transfer in interest due
         dai.approve(msg.sender, interestDue);
@@ -188,8 +189,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // TODO need to simplify this
         // Remove interest due, then add new interest
-        interestReceivable -= interestDue;
-        interestReceivable += cooler_.getLoan(loanID_).origInterest;
+        interestReceivables -= interestDue;
+        interestReceivables += interestForLoan(loan.principle, loan.request.duration);
     }
 
     /// @notice Batch several default claims to save gas.
@@ -237,7 +238,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         }
 
         // Decrement loan receivables.
-        interestReceivable = (interestReceivable > totalInterest) ? interestReceivable - totalInterest : 0;
+        interestReceivables = (interestReceivables > totalInterest) ? interestReceivables - totalInterest : 0;
 
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
@@ -266,8 +267,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         _sweepIntoDSR(principlePaid_ + interestPaid_);
 
         // Decrement loan receivables.
-        interestReceivable = (interestReceivable > interestPaid_)
-            ? interestReceivable - interestPaid_
+        interestReceivables = (interestReceivables > interestPaid_)
+            ? interestReceivables - interestPaid_
             : 0;
     }
     
@@ -394,21 +395,22 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     // TODO Can make test to verify getLoanForCollateral == getCollateralForLoan
 
     /// @notice view function computing collateral for a loan amount.
-    function getCollateralForLoan(uint256 loan_) external view returns (uint256) {
-        return loan_ * 1e18 / LOAN_TO_COLLATERAL;
+    function getCollateralForLoan(uint256 principle_) external pure returns (uint256) {
+        return principle_ * 1e18 / LOAN_TO_COLLATERAL;
     }
     
     /// @notice view function computing loan for a collateral amount.
     /// @param  collateral_ amount of gOHM.
     /// @return debt (amount to be lent + interest) for a given collateral amount.
-    function getLoanForCollateral(uint256 collateral_) public view returns (uint256, uint256) {
+    function getLoanForCollateral(uint256 collateral_) public pure returns (uint256, uint256) {
         uint256 principle = collateral_ * LOAN_TO_COLLATERAL / 1e18;
         uint256 interest = interestForLoan(principle, DURATION);
         return (principle, interest);
     }
 
-    /// @notice view function to compute the interest for a given debt amount.
-    /// @param principle_ amount of DAI being lent
+    /// @notice view function to compute the interest for given principle amount.
+    /// @param principle_ amount of DAI being lent.
+    /// @param duration_ elapsed time in seconds.
     function interestForLoan(uint256 principle_, uint256 duration_) public pure returns (uint256) {
         uint256 interestPercent = (INTEREST_RATE * duration_) / 365 days;
         return principle_ * interestPercent / 1e18;
@@ -417,6 +419,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Get total receivable DAI for the treasury
     /// @dev    Includes both principle and interest
     function getTotalReceivable() external view returns (uint256) {
-        return TRSRY.reserveDebt(dai, address(this)) + interestReceivable;
+        return TRSRY.reserveDebt(dai, address(this)) + interestReceivables;
     }
 }
