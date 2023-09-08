@@ -168,21 +168,18 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Ensure we are the lender
         if (loan.lender != address(this)) revert OnlyLender();
 
-        // Calculate interest due and new interest.
-        uint256 durationPassed = block.timestamp - loan.start;
-        uint256 interestDue = interestForLoan(loan.principle, durationPassed);
-        uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
-
-        // Remove interest due, then add new interest.
-        interestReceivables += interestNew - interestDue;
-
-        // Transfer in interest due from the caller.
-        dai.approve(msg.sender, interestDue);
-        dai.transferFrom(
-            msg.sender,
-            loan.recipient,
-            interestDue
-        );
+        // Force interest repayment if necessary.
+        if (loan.interestDue == 0) {
+            // If interest has manually been repaid, only update receivables.
+            uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
+            interestReceivables += interestNew;
+        } else {
+            // Otherwise, transfer in interest due from the caller.
+            uint256 durationPassed = block.timestamp - loan.start;
+            uint256 interestDue = interestForLoan(loan.principle, durationPassed);
+            
+            dai.transferFrom(msg.sender, loan.recipient, interestDue);
+        }
 
         // Signal to cooler that loan can be extended.
         cooler_.extendLoanTerms(loanID_);
@@ -411,8 +408,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         return principle_ * interestPercent / 1e18;
     }
     
-    /// @notice Get total receivable DAI for the treasury
-    /// @dev    Includes both principle and interest
+    /// @notice Get total receivable DAI for the treasury.
+    /// @dev    Includes both principle and interest.
     function getTotalReceivables() external view returns (uint256) {
         return TRSRY.reserveDebt(dai, address(this)) + interestReceivables;
     }
