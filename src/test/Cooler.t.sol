@@ -1139,6 +1139,9 @@ contract CoolerTest is Test {
 
         uint256 expectedCollateral = amount * 10 ** collateralDecimals / loanToCollateral;
         console2.log("expectedCollateral: %s", expectedCollateral);
+        if (expectedCollateral == 0) {
+            vm.expectRevert(abi.encodeWithSelector(Cooler.InvalidLoanAmount.selector, amount));
+        }
 
         // collateralFor() should return the correct amount of collateral tokens
         uint256 collateralFor = cooler.collateralFor(amount, loanToCollateral);

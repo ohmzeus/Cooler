@@ -26,6 +26,7 @@ contract Cooler is Clone {
     error NotRollable();
     error ZeroCollateralReturned();
     error NotCoolerCallback();
+    error InvalidLoanAmount(uint256 amount_);
 
     // --- DATA STRUCTURES -------------------------------------------
 
@@ -369,7 +370,12 @@ contract Cooler is Clone {
     /// @param  amount_ of loan to be taken. Expressed in 10**debt().decimals().
     /// @param  loanToCollateral_ debt tokens per collateral token pledged. Expressed in 10**debt().decimals().
     function collateralFor(uint256 amount_, uint256 loanToCollateral_) public view returns (uint256) {
-        return (amount_ * (10 ** collateral().decimals())) / loanToCollateral_;
+        uint256 collateralRequired = (amount_ * (10 ** collateral().decimals())) / loanToCollateral_;
+
+        // Under certain circumstances (related to different decimal numbers), the collateral required can be zero.
+        if (collateralRequired == 0) revert InvalidLoanAmount(amount_);
+
+        return collateralRequired;
     }
 
     /// @notice compute collateral needed to roll loan.
