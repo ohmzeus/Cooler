@@ -350,7 +350,6 @@ contract CoolerTest is Test {
         assertEq(amount_, loan.principle);
         assertEq(_interestFor(amount_, INTEREST_RATE, DURATION), loan.interestDue);
         assertEq(_collateralFor(amount_), loan.collateral);
-        assertEq(block.timestamp, loan.start);
         assertEq(block.timestamp + DURATION, loan.expiry);
         assertEq(lender, loan.lender);
         assertEq(recipient_, loan.recipient);
@@ -593,7 +592,6 @@ contract CoolerTest is Test {
         assertEq(0, loan.principle);
         assertEq(0, loan.interestDue);
         assertEq(0, loan.collateral);
-        assertEq(0, loan.start);
         assertEq(0, loan.expiry);
         assertEq(address(0), loan.lender);
         assertEq(address(0), loan.recipient);
@@ -638,7 +636,6 @@ contract CoolerTest is Test {
         assertEq(0, loan1.principle, "loanAmount1");
         assertEq(0, loan1.interestDue, "loanInterest1");
         assertEq(0, loan1.collateral, "loanCollat1");
-        assertEq(0, loan1.start, "loanStart1");
         assertEq(0, loan1.expiry, "loanExpiry1");
         assertEq(address(0), loan1.lender, "loanLender1");
         assertEq(address(0), loan1.recipient, "loanRecipient1");
@@ -648,7 +645,6 @@ contract CoolerTest is Test {
         assertEq(amount2_, loan2.principle, "loanAmount2");
         assertEq(_interestFor(amount2_, INTEREST_RATE/2, DURATION*2), loan2.interestDue, "loanInterest2");
         assertEq(_collateralFor(amount2_), loan2.collateral, "loanCollat2");
-        assertEq(block.timestamp - DURATION - 1, loan2.start, "loanStart2");
         assertEq(51 * 365 * 24 * 60 * 60 + DURATION * 2, loan2.expiry, "loanExpiry2");
         assertEq(lender, loan2.lender, "loanLender2");
         assertEq(lender, loan2.recipient, "loanDirect2");
@@ -827,15 +823,15 @@ contract CoolerTest is Test {
         (uint256 reqID, ) = _requestLoan(amount_);
         uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
 
-        Cooler.Loan memory loan = cooler.getLoan(loanID);
+        Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
-        vm.warp((loan.start + loan.expiry) / 2);
+        vm.warp((block.timestamp + initLoan.expiry) / 2);
         // simulate owner repaying interest to lender before extending the loan.
         // repayment is made using `repayLoan` to alter the `interestDue` and later
         // on assert that extending the loan resetets the interest owed.
         vm.startPrank(owner);
-        debt.approve(address(cooler), loan.interestDue/2);
-        cooler.repayLoan(loanID, loan.interestDue/2);
+        debt.approve(address(cooler), initLoan.interestDue);
+        cooler.repayLoan(loanID, initLoan.interestDue);
         vm.stopPrank();
         
         // cache balances after owner has repaid the interest to the lender
@@ -846,14 +842,17 @@ contract CoolerTest is Test {
         vm.prank(lender);
         cooler.extendLoanTerms(loanID);
 
-        loan = cooler.getLoan(loanID);
+        Cooler.Loan memory extendedloan = cooler.getLoan(loanID);
 
         // check: debt balances didn't change
         assertEq(debt.balanceOf(owner), initOwnerDebt);
         assertEq(debt.balanceOf(lender), initLenderDebt);
         // check: loan storage
-        assertEq(loan.expiry, block.timestamp + loan.request.duration);
-        assertEq(loan.interestDue, _interestFor(loan.request.amount, loan.request.interest, loan.request.duration));
+        assertEq(extendedloan.expiry, initLoan.expiry + initLoan.request.duration);
+        assertEq(
+            extendedloan.interestDue,
+            _interestFor(initLoan.request.amount, initLoan.request.interest, initLoan.request.duration)
+        );
     }
 
     function testRevertFuzz_extendLoanTerms_onlyLender(uint256 amount_) public {

@@ -310,22 +310,22 @@ contract ClearinghouseTest is Test {
         uint256 initDaiCH = dai.balanceOf(address(clearinghouse));
         uint256 initReceivables = clearinghouse.interestReceivables();
         // Repay the interest of the loan (interest = owed debt - borrowed amount)
-        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principle, elapsed_);
+        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principle, initLoan.request.duration);
         dai.approve(address(clearinghouse), interestOwed);
         // Extend loan
         clearinghouse.extendLoan(cooler, loanID);
         vm.stopPrank();
 
-        Cooler.Loan memory newLoan = cooler.getLoan(loanID);
+        Cooler.Loan memory extendedLoan = cooler.getLoan(loanID);
 
         // Check: balances
         assertEq(dai.balanceOf(user), initDaiUser - interestOwed, "DAI user");
         assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH + interestOwed, "DAI CH");
         // Check: cooler storage
-        assertEq(newLoan.principle, initLoan.principle);
-        assertEq(newLoan.interestDue, initLoan.interestDue);
-        assertEq(newLoan.collateral, initLoan.collateral);
-        assertEq(newLoan.expiry, initLoan.expiry + elapsed_);
+        assertEq(extendedLoan.principle, initLoan.principle, "principle");
+        assertEq(extendedLoan.interestDue, initLoan.interestDue, "interest");
+        assertEq(extendedLoan.collateral, initLoan.collateral, "collateral");
+        assertEq(extendedLoan.expiry, initLoan.expiry + initLoan.request.duration, "expiry");
         // Check: clearinghouse storage
         assertEq(clearinghouse.interestReceivables(), initReceivables);
     }
@@ -354,18 +354,18 @@ contract ClearinghouseTest is Test {
         clearinghouse.extendLoan(cooler, loanID);
         vm.stopPrank();
 
-        Cooler.Loan memory newLoan = cooler.getLoan(loanID);
+        Cooler.Loan memory extendedLoan = cooler.getLoan(loanID);
 
         // Check: balances
         assertEq(dai.balanceOf(user), initDaiUser, "DAI user");
         assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH, "DAI CH");
         // Check: cooler storage
-        assertEq(newLoan.principle, initLoan.principle);
-        assertEq(newLoan.interestDue, initLoan.interestDue);
-        assertEq(newLoan.collateral, initLoan.collateral);
-        assertEq(newLoan.expiry, initLoan.expiry + elapsed_);
+        assertEq(extendedLoan.principle, initLoan.principle, "principle");
+        assertEq(extendedLoan.interestDue, initLoan.interestDue, "interest");
+        assertEq(extendedLoan.collateral, initLoan.collateral, "collateral");
+        assertEq(extendedLoan.expiry, initLoan.expiry + initLoan.request.duration, "expiry");
         // Check: clearinghouse storage
-        assertEq(clearinghouse.interestReceivables(), initReceivables + newLoan.interestDue);
+        assertEq(clearinghouse.interestReceivables(), initReceivables + extendedLoan.interestDue);
     }
 
     function testRevert_extendLoan_OnlyLender() public {

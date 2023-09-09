@@ -165,20 +165,16 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         Cooler.Loan memory loan = cooler_.getLoan(loanID_);
 
-        // Ensure we are the lender
+        // Ensure Clearinghouse is the lender.
         if (loan.lender != address(this)) revert OnlyLender();
 
-        // Force interest repayment if necessary.
+        uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
         if (loan.interestDue == 0) {
             // If interest has manually been repaid, only update receivables.
-            uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
             interestReceivables += interestNew;
         } else {
             // Otherwise, transfer in interest due from the caller.
-            uint256 durationPassed = block.timestamp - loan.start;
-            uint256 interestDue = interestForLoan(loan.principle, durationPassed);
-            
-            dai.transferFrom(msg.sender, loan.recipient, interestDue);
+            dai.transferFrom(msg.sender, loan.recipient, interestNew);
         }
 
         // Signal to cooler that loan can be extended.
