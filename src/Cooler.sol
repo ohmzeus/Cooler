@@ -42,7 +42,6 @@ contract Cooler is Clone {
         uint256 principle;      // Amount of principle debt owed to the lender.
         uint256 interestDue;    // Interest owed to the lender.
         uint256 collateral;     // Amount of collateral pledged.
-        uint256 start;          // Time when the loan was granted.
         uint256 expiry;         // Time when the loan defaults.
         address lender;         // Lender's address.
         address recipient;      // Recipient of repayments.
@@ -194,14 +193,14 @@ contract Cooler is Clone {
     }
 
     // Allow lender to extend loan for borrower. Any payments are done by the caller.
-    function extendLoanTerms(uint256 loanID_) external {
+    function extendLoanTerms(uint256 loanID_, uint8 times_) external {
         Loan memory loan = loans[loanID_];
 
         if (msg.sender != loan.lender) revert OnlyApproved();
         if (block.timestamp > loan.expiry) revert Default();
 
-        // Update loan terms with original interest and expiry.
-        loan.expiry = block.timestamp + loan.request.duration;
+        // Update loan terms to reflect the extension.
+        loan.expiry += loan.request.duration * times_;
         loan.interestDue = interestFor(
             loan.request.amount,
             loan.request.interest,
@@ -256,7 +255,6 @@ contract Cooler is Clone {
                 principle: req.amount,
                 interestDue: interest,
                 collateral: collat,
-                start: block.timestamp,
                 expiry: block.timestamp + req.duration,
                 lender: msg.sender,
                 recipient: recipient_,

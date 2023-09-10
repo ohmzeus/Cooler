@@ -32,7 +32,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error TooEarlyToFund();
     error LengthDiscrepancy();
     error OnlyBorrower();
-    error OnlyLender();
+    error NotLender();
 
     // --- EVENTS ----------------------------------------------------
 
@@ -159,30 +159,27 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     // Repay current loan interest due then extend loan duration and interest to original terms
-    function extendLoan(Cooler cooler_, uint256 loanID_) external {
+    function extendLoan(Cooler cooler_, uint256 loanID_, uint8 times_) external {
         // Attempt a clearinghouse <> treasury rebalance.
         rebalance();
 
         Cooler.Loan memory loan = cooler_.getLoan(loanID_);
 
-        // Ensure we are the lender
-        if (loan.lender != address(this)) revert OnlyLender();
+        // Ensure Clearinghouse is the lender.
+        if (loan.lender != address(this)) revert NotLender();
 
-        // Force interest repayment if necessary.
+        uint8 timesDue = times_;
+        uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
         if (loan.interestDue == 0) {
             // If interest has manually been repaid, only update receivables.
-            uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
             interestReceivables += interestNew;
-        } else {
-            // Otherwise, transfer in interest due from the caller.
-            uint256 durationPassed = block.timestamp - loan.start;
-            uint256 interestDue = interestForLoan(loan.principle, durationPassed);
-            
-            dai.transferFrom(msg.sender, loan.recipient, interestDue);
+            timesDue = times_ - 1;
         }
+        // Transfer in extension interest from the caller.
+        dai.transferFrom(msg.sender, loan.recipient, interestNew * timesDue);
 
         // Signal to cooler that loan can be extended.
-        cooler_.extendLoanTerms(loanID_);
+        cooler_.extendLoanTerms(loanID_, times_);
     }
 
     /// @notice Batch several default claims to save gas.
