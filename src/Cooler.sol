@@ -193,14 +193,14 @@ contract Cooler is Clone {
     }
 
     // Allow lender to extend loan for borrower. Any payments are done by the caller.
-    function extendLoanTerms(uint256 loanID_) external {
+    function extendLoanTerms(uint256 loanID_, uint8 times_) external {
         Loan memory loan = loans[loanID_];
 
         if (msg.sender != loan.lender) revert OnlyApproved();
         if (block.timestamp > loan.expiry) revert Default();
 
         // Update loan terms to reflect the extension.
-        loan.expiry += loan.request.duration;
+        loan.expiry += loan.request.duration * times_;
         loan.interestDue = interestFor(
             loan.request.amount,
             loan.request.interest,

@@ -840,7 +840,7 @@ contract CoolerTest is Test {
    
         // lender decides to extend the loan
         vm.prank(lender);
-        cooler.extendLoanTerms(loanID);
+        cooler.extendLoanTerms(loanID, 1);
 
         Cooler.Loan memory extendedloan = cooler.getLoan(loanID);
 
@@ -849,6 +849,48 @@ contract CoolerTest is Test {
         assertEq(debt.balanceOf(lender), initLenderDebt);
         // check: loan storage
         assertEq(extendedloan.expiry, initLoan.expiry + initLoan.request.duration);
+        assertEq(
+            extendedloan.interestDue,
+            _interestFor(initLoan.request.amount, initLoan.request.interest, initLoan.request.duration)
+        );
+    }
+
+    function testFuzz_extendLoanTerms_severalTimes(uint256 amount_, uint8 times_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT / 2);
+        bool directRepay = true;
+        bool callbackRepay = false;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount_);
+        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
+
+        Cooler.Loan memory initLoan = cooler.getLoan(loanID);
+
+        vm.warp((block.timestamp + initLoan.expiry) / 2);
+        // simulate owner repaying interest to lender before extending the loan.
+        // repayment is made using `repayLoan` to alter the `interestDue` and later
+        // on assert that extending the loan resetets the interest owed.
+        vm.startPrank(owner);
+        debt.approve(address(cooler), initLoan.interestDue);
+        cooler.repayLoan(loanID, initLoan.interestDue);
+        vm.stopPrank();
+        
+        // cache balances after owner has repaid the interest to the lender
+        uint256 initOwnerDebt = debt.balanceOf(owner);
+        uint256 initLenderDebt = debt.balanceOf(lender);
+   
+        // lender decides to extend the loan
+        vm.prank(lender);
+        cooler.extendLoanTerms(loanID, times_);
+
+        Cooler.Loan memory extendedloan = cooler.getLoan(loanID);
+
+        // check: debt balances didn't change
+        assertEq(debt.balanceOf(owner), initOwnerDebt);
+        assertEq(debt.balanceOf(lender), initLenderDebt);
+        // check: loan storage
+        assertEq(extendedloan.expiry, initLoan.expiry + initLoan.request.duration * times_);
         assertEq(
             extendedloan.interestDue,
             _interestFor(initLoan.request.amount, initLoan.request.interest, initLoan.request.duration)
@@ -868,7 +910,7 @@ contract CoolerTest is Test {
         vm.prank(owner);
         // only extendable by the lender
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.extendLoanTerms(loanID);
+        cooler.extendLoanTerms(loanID, 1);
     }
 
     function testRevertFuzz_extendLoanTerms_defaulted(uint256 amount_) public {
@@ -887,7 +929,7 @@ contract CoolerTest is Test {
         vm.prank(lender);
         // can't extend an expired loan
         vm.expectRevert(Cooler.Default.selector);
-        cooler.extendLoanTerms(loanID);
+        cooler.extendLoanTerms(loanID, 1);
     }
 
     function test_collateralFor_debtDecimalsHigh() public {
