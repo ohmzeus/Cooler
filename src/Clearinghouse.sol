@@ -68,10 +68,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice timestamp at which the next rebalance can occur.
     uint256 public fundTime;
 
-    /// @notice Outstanding interest receivables.
+    /// @notice Outstanding receivables.
     /// Incremented when a loan is taken or rolled.
     /// Decremented when a loan is repaid or collateral is burned.
     uint256 public interestReceivables;
+    uint256 public principleReceivables;
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -145,6 +146,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Increment interest to be expected
         (, uint256 interest) = getLoanForCollateral(collateral);
         interestReceivables += interest;
+        principleReceivables += amount_;
 
         // Create a new loan request.
         gOHM.approve(address(cooler_), collateral);
@@ -168,15 +170,18 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Ensure Clearinghouse is the lender.
         if (loan.lender != address(this)) revert NotLender();
 
-        uint8 timesDue = times_;
-        uint256 interestNew = interestForLoan(loan.principle, loan.request.duration);
+        uint256 interestNew;
         if (loan.interestDue == 0) {
-            // If interest has manually been repaid, only update receivables.
-            interestReceivables += interestNew;
-            timesDue = times_ - 1;
+            // If interest has manually been repaid, user only pays for the subsequent extensions.
+            interestNew = interestForLoan(loan.principle, loan.request.duration * (times_ - 1));
+            // Receivables need to be updated.
+            interestReceivables += interestForLoan(loan.principle, loan.request.duration);
+        } else {
+            // Otherwise, user pays for all the extensions.
+            interestNew = interestForLoan(loan.principle, loan.request.duration * times_);
         }
         // Transfer in extension interest from the caller.
-        dai.transferFrom(msg.sender, loan.recipient, interestNew * timesDue);
+        dai.transferFrom(msg.sender, loan.recipient, interestNew);
 
         // Signal to cooler that loan can be extended.
         cooler_.extendLoanTerms(loanID_, times_);
@@ -228,6 +233,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Decrement loan receivables.
         interestReceivables = (interestReceivables > totalInterest) ? interestReceivables - totalInterest : 0;
+        principleReceivables = (principleReceivables > totalPrinciple) ? principleReceivables - totalPrinciple : 0;        
 
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
@@ -258,6 +264,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Decrement loan receivables.
         interestReceivables = (interestReceivables > interestPaid_)
             ? interestReceivables - interestPaid_
+            : 0;
+        principleReceivables = (principleReceivables > principlePaid_)
+            ? principleReceivables - principlePaid_
             : 0;
     }
     
@@ -406,8 +415,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     }
     
     /// @notice Get total receivable DAI for the treasury.
-    /// @dev    Includes both principle and interest.
+    ///         Includes both principle and interest.
     function getTotalReceivables() external view returns (uint256) {
-        return TRSRY.reserveDebt(dai, address(this)) + interestReceivables;
+        return principleReceivables + interestReceivables;
     }
 }
