@@ -119,7 +119,7 @@ contract Cooler is Clone {
         );
 
         // Log the event.
-        factory().newEvent(reqID, CoolerFactory.Events.RequestLoan, 0);
+        factory().logRequestLoan(reqID);
     }
 
     /// @notice Cancel a loan request and get the collateral back.
@@ -136,7 +136,7 @@ contract Cooler is Clone {
         collateral().safeTransfer(owner(), collateralFor(req.amount, req.loanToCollateral));
 
         // Log the event.
-        factory().newEvent(reqID_, CoolerFactory.Events.RescindRequest, 0);
+        factory().logRescindRequest(reqID_);
     }
 
     /// @notice Repay a loan to get the collateral back.
@@ -184,34 +184,12 @@ contract Cooler is Clone {
         if (decollateralized > 0) collateral().safeTransfer(owner(), decollateralized);
 
         // Log the event.
-        factory().newEvent(loanID_, CoolerFactory.Events.RepayLoan, repayment_);
+        factory().logRepayLoan(loanID_, repayment_);
 
         // If necessary, trigger lender callback.
         if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, remainder, interestPaid);
 
         return decollateralized;
-    }
-
-    // Allow lender to extend loan for borrower. Any payments are done by the caller.
-    function extendLoanTerms(uint256 loanID_, uint8 times_) external {
-        Loan memory loan = loans[loanID_];
-
-        if (msg.sender != loan.lender) revert OnlyApproved();
-        if (block.timestamp > loan.expiry) revert Default();
-
-        // Update loan terms to reflect the extension.
-        loan.expiry += loan.request.duration * times_;
-        loan.interestDue = interestFor(
-            loan.request.amount,
-            loan.request.interest,
-            loan.request.duration
-        );
-
-        // Save updated loan info in storage.
-        loans[loanID_] = loan;
-
-        // Log the event.
-        factory().newEvent(loanID_, CoolerFactory.Events.ExtendLoan, 0);
     }
 
     /// @notice Delegate voting power on collateral.
@@ -269,7 +247,29 @@ contract Cooler is Clone {
         debt().safeTransferFrom(msg.sender, owner(), req.amount);
 
         // Log the event.
-        factory().newEvent(reqID_, CoolerFactory.Events.ClearRequest, 0);
+        factory().logClearRequest(reqID_, loanID);
+    }
+
+    // Allow lender to extend loan for borrower. Any payments are done by the caller.
+    function extendLoanTerms(uint256 loanID_, uint8 times_) external {
+        Loan memory loan = loans[loanID_];
+
+        if (msg.sender != loan.lender) revert OnlyApproved();
+        if (block.timestamp > loan.expiry) revert Default();
+
+        // Update loan terms to reflect the extension.
+        loan.expiry += loan.request.duration * times_;
+        loan.interestDue = interestFor(
+            loan.request.amount,
+            loan.request.interest,
+            loan.request.duration
+        );
+
+        // Save updated loan info in storage.
+        loans[loanID_] = loan;
+
+        // Log the event.
+        factory().logExtendLoan(loanID_, times_);
     }
 
     /// @notice Claim collateral upon loan default.
@@ -285,7 +285,7 @@ contract Cooler is Clone {
         collateral().safeTransfer(loan.lender, loan.collateral);
 
         // Log the event.
-        factory().newEvent(loanID_, CoolerFactory.Events.DefaultLoan, 0);
+        factory().logDefaultLoan(loanID_);
 
         // If necessary, trigger lender callback.
         if (loan.callback)

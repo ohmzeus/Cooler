@@ -36,8 +36,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- EVENTS ----------------------------------------------------
 
-    event Deactivated();
-    event Reactivated();
+    event Defund();
+    event Rebalance();
+    event Deactivate();
+    event Reactivate();
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
@@ -328,6 +330,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             sdai.approve(address(TRSRY), sdaiAmount);
             sdai.transfer(address(TRSRY), sdaiAmount);
         }
+
+        // Log the event.
+        emit Rebalance();
         return true;
     }
 
@@ -363,7 +368,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             });
         }
 
+        // Defund and log the event
         token_.transfer(address(TRSRY), amount_);
+        emit Defund();
     }
 
     /// @notice Deactivate the contract and return funds to treasury.
@@ -378,14 +385,14 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 daiBalance = dai.balanceOf(address(this));
         if (daiBalance != 0) defund(dai, daiBalance);
 
-        emit Deactivated();
+        emit Deactivate();
     }
 
     /// @notice Reactivate the contract.
     function reactivate() external onlyRole("cooler_overseer") {
         active = true;
 
-        emit Reactivated();
+        emit Reactivate();
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
