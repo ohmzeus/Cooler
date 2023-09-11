@@ -653,12 +653,14 @@ contract CoolerTest is Test {
         ) = cooler.loans(loanID);
         
         // check: loan storage
+        // - only amount and collateral are cleared
         assertEq(0, loanAmount);
-        assertEq(0, loanUnclaimed);
         assertEq(0, loanCollat);
-        assertEq(0, loanExpiry);
-        assertEq(address(0), loanLender);
-        assertEq(false, loanDirect);
+        // - the rest of the variables are untouched
+        assertEq(0, loanUnclaimed);
+        assertEq(block.timestamp - 1, loanExpiry);
+        assertEq(lender, loanLender);
+        assertEq(true, loanDirect);
         assertEq(false, loanCallback);
     }
 
@@ -707,9 +709,9 @@ contract CoolerTest is Test {
         assertEq(0, loanAmount1, "loanAmount1");
         assertEq(0, loanUnclaimed1, "loanUnclaimed1");
         assertEq(0, loanCollat1, "loanCollat1");
-        assertEq(0, loanExpiry1, "loanExpiry1");
-        assertEq(address(0), loanLender1, "loanLender1");
-        assertEq(false, loanDirect1, "loanDirect1");
+        assertEq(block.timestamp - 1, loanExpiry1, "loanExpiry1");
+        assertEq(lender, loanLender1, "loanLender1");
+        assertEq(true, loanDirect1, "loanDirect1");
         assertEq(false, loanCallback1, "loanCallback1");
         }
         {
