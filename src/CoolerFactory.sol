@@ -19,17 +19,17 @@ contract CoolerFactory {
 
     // --- EVENTS ----------------------------------------------------
 
-    /// @notice Emit a global event when a new loan request is created.
+    /// @notice A global event when a new loan request is created.
     event RequestLoan(address indexed cooler, address collateral, address debt, uint256 reqID);
-    /// @notice Emit a global event when a loan request is rescinded.
+    /// @notice A global event when a loan request is rescinded.
     event RescindRequest(address indexed cooler, uint256 reqID);
-    /// @notice Emit a global event when a loan request is fulfilled.
+    /// @notice A global event when a loan request is fulfilled.
     event ClearRequest(address indexed cooler, uint256 reqID, uint256 loanID);
-    /// @notice Emit a global event when a loan is repaid.
+    /// @notice A global event when a loan is repaid.
     event RepayLoan(address indexed cooler, uint256 loanID, uint256 amount);
-    /// @notice Emit a global event when a loan is extended.
+    /// @notice A global event when a loan is extended.
     event ExtendLoan(address indexed cooler, uint256 loanID, uint8 times);
-    /// @notice Emit a global event when the collateral of defaulted loan is claimed.
+    /// @notice A global event when the collateral of defaulted loan is claimed.
     event DefaultLoan(address indexed cooler, uint256 loanID);
 
     // -- STATE VARIABLES --------------------------------------------
