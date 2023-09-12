@@ -31,6 +31,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error OnlyBurnable();
     error TooEarlyToFund();
     error LengthDiscrepancy();
+    error OnlyBorrower();
+    error NotLender();
 
     // --- EVENTS ----------------------------------------------------
 
@@ -209,7 +211,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
 
             // Validate that loan was written by clearinghouse.
-            if (Cooler(coolers_[i]).getLoan(loans_[i]).lender != address(this)) revert OnlyFromClearinghouse();
+            if (Cooler(coolers_[i]).getLoan(loans_[i]).lender != address(this)) revert NotLender();
             
             // Claim defaults and update cached metrics.
             (uint256 principle, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
@@ -272,7 +274,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         if (active) {
             _sweepIntoDSR(principlePaid_ + interestPaid_);
         } else {
-            _defund(dai, amount_);
+            _defund(dai, principlePaid_ + interestPaid_);
         }
 
         // Decrement loan receivables.

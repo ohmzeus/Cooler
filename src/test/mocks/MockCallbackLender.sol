@@ -8,12 +8,12 @@ contract MockLender is CoolerCallback {
     constructor(address coolerFactory_) CoolerCallback(coolerFactory_) {}
     
     /// @notice Callback function that handles repayments. Override for custom logic.
-    function _onRepay(uint256 loanID_, uint256 principleAmount_, uint256 interestAmount_) internal override {
+    function _onRepay(uint256 loanID_, uint256 principle_, uint256 interest_) internal override {
         // callback logic
     }
 
     /// @notice Callback function that handles defaults.
-    function _onDefault(uint256 loanID_, uint256 debt, uint256 collateral) internal override {
+    function _onDefault(uint256 loanID_, uint256 principle_, uint256 interestDue_, uint256 collateral_) internal override {
         // callback logic
     }
 }

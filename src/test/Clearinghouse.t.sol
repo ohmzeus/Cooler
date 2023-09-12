@@ -775,7 +775,7 @@ contract ClearinghouseTest is Test {
         dai.approve(address(maliciousCooler), amountNeeded);
 
         uint256 reqID = maliciousCooler.requestLoan(1e14, 0, 1, 0);
-        uint256 maliciousLoanID = maliciousCooler.clearRequest(reqID, true, false);
+        uint256 maliciousLoanID = maliciousCooler.clearRequest(reqID, others, false);
         vm.stopPrank();
 
         uint256[] memory ids = new uint256[](2);
@@ -787,7 +787,7 @@ contract ClearinghouseTest is Test {
 
         // Loans not created by the Clearinghouse could be malicious.
         vm.prank(others);
-        vm.expectRevert(Clearinghouse.OnlyFromClearinghouse.selector);
+        vm.expectRevert(Clearinghouse.NotLender.selector);
         clearinghouse.claimDefaulted(coolers, ids);
     }
 }

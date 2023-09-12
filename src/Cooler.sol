@@ -263,7 +263,7 @@ contract Cooler is Clone {
                 collateral: collat,
                 expiry: block.timestamp + req.duration,
                 lender: msg.sender,
-                repayDirect: repayDirect_,
+                recipient: recipient_,
                 callback: callback
             })
         );
@@ -286,7 +286,8 @@ contract Cooler is Clone {
 
         if (block.timestamp <= loan.expiry) revert NoDefault();
 
-        loans[loanID_].amount = 0;
+        loans[loanID_].principle = 0;
+        loans[loanID_].interestDue = 0;
         loans[loanID_].collateral = 0;
 
         // Transfer defaulted collateral to the lender.
