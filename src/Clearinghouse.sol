@@ -31,8 +31,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error OnlyBurnable();
     error TooEarlyToFund();
     error LengthDiscrepancy();
-    error OnlyBorrower();
-    error NotLender();
 
     // --- EVENTS ----------------------------------------------------
 
@@ -43,7 +41,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     ERC20 public immutable dai;             // Debt token
     ERC4626 public immutable sdai;          // Idle DAI will wrapped into sDAI
-    ERC20 public immutable gOHM;            // Collateral token
+    ERC20 public immutable gohm;            // Collateral token
+    ERC20 public immutable ohm;             // Unwrapped gOHM
     IStaking public immutable staking;      // Necessary to unstake (and burn) OHM from defaults
     
     // --- MODULES ---------------------------------------------------
@@ -77,6 +76,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     // --- INITIALIZATION --------------------------------------------
 
     constructor(
+        address ohm_,
         address gohm_,
         address staking_,
         address sdai_,
@@ -84,7 +84,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         address kernel_
     ) Policy(Kernel(kernel_)) CoolerCallback(coolerFactory_) {
         // Store the relevant contracts.
-        gOHM = ERC20(gohm_);
+        ohm = ERC20(ohm_);
+        gohm = ERC20(gohm_);
         staking = IStaking(staking_);
         sdai = ERC4626(sdai_);
         dai = ERC20(sdai.asset());
@@ -106,6 +107,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         TRSRY = TRSRYv1(getModuleAddress(toKeycode("TRSRY")));
         MINTR = MINTRv1(getModuleAddress(toKeycode("MINTR")));
         ROLES = ROLESv1(getModuleAddress(toKeycode("ROLES")));
+
+        // Approve MINTR for burning OHM (called here so that it is re-approved on updates)
+        ohm.approve(address(MINTR), type(uint256).max);
     }
 
     /// @notice Default framework setup. Request permissions for interacting with olympus-v3 modules.
@@ -137,11 +141,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         if (!factory.created(address(cooler_))) revert OnlyFromFactory();
 
         // Validate cooler collateral and debt tokens.
-        if (cooler_.collateral() != gOHM || cooler_.debt() != dai) revert BadEscrow();
+        if (cooler_.collateral() != gohm || cooler_.debt() != dai) revert BadEscrow();
 
         // Transfer in collateral owed
         uint256 collateral = cooler_.collateralFor(amount_, LOAN_TO_COLLATERAL);
-        gOHM.transferFrom(msg.sender, address(this), collateral);
+        gohm.transferFrom(msg.sender, address(this), collateral);
 
         // Increment interest to be expected
         (, uint256 interest) = getLoanForCollateral(collateral);
@@ -149,7 +153,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         principleReceivables += amount_;
 
         // Create a new loan request.
-        gOHM.approve(address(cooler_), collateral);
+        gohm.approve(address(cooler_), collateral);
         uint256 reqID = cooler_.requestLoan(amount_, INTEREST_RATE, LOAN_TO_COLLATERAL, DURATION);
 
         // Clear the created loan request by providing enough DAI.
@@ -203,6 +207,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         for (uint256 i=0; i < loans;) {
             // Validate that cooler was deployed by the trusted factory.
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
+
+            // Validate that loan was written by clearinghouse.
+            if (Cooler(coolers_[i]).getLoan(loans_[i]).lender != address(this)) revert OnlyFromClearinghouse();
             
             // Claim defaults and update cached metrics.
             (uint256 principle, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
@@ -248,18 +255,25 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         });
 
         // Reward keeper.
-        gOHM.transfer(msg.sender, keeperRewards);
+        gohm.transfer(msg.sender, keeperRewards);
 
         // Unstake and burn the collateral of the defaulted loans.
-        gOHM.approve(address(staking), totalCollateral - keeperRewards);
+        gohm.approve(address(staking), totalCollateral - keeperRewards);
         MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral - keeperRewards, false, false));
     }
 
     // --- CALLBACKS -----------------------------------------------------
 
-    /// @notice Overridden callback to decrement interest receivables.
+    /// @notice Overridden callback to decrement loan receivables.
+    /// @param *unused loadID_ of the load.
+    /// @param principlePaid_ in DAI.
+    /// @param interestPaid_ in DAI.
     function _onRepay(uint256, uint256 principlePaid_, uint256 interestPaid_) internal override {
-        _sweepIntoDSR(principlePaid_ + interestPaid_);
+        if (active) {
+            _sweepIntoDSR(principlePaid_ + interestPaid_);
+        } else {
+            _defund(dai, amount_);
+        }
 
         // Decrement loan receivables.
         interestReceivables = (interestReceivables > interestPaid_)
@@ -346,8 +360,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Return funds to treasury.
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
-    function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
-        if (token_ == gOHM) revert OnlyBurnable();
+    function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
+        if (token_ == gohm) revert OnlyBurnable();
+        _defund(token_, amount_);
+    }
+
+    /// @notice Internal function to return funds to treasury.
+    /// @param  token_ to transfer.
+    /// @param  amount_ to transfer.
+    function _defund(ERC20 token_, uint256 amount_) internal {
         if (token_ == sdai || token_ == dai) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
@@ -372,11 +393,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // If necessary, defund sDAI.
         uint256 sdaiBalance = sdai.balanceOf(address(this));
-        if (sdaiBalance != 0) defund(sdai, sdaiBalance);
+        if (sdaiBalance != 0) _defund(sdai, sdaiBalance);
 
         // If necessary, defund DAI.
         uint256 daiBalance = dai.balanceOf(address(this));
-        if (daiBalance != 0) defund(dai, daiBalance);
+        if (daiBalance != 0) _defund(dai, daiBalance);
 
         emit Deactivated();
     }
