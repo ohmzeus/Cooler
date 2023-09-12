@@ -286,9 +286,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             : 0;
     }
     
-    /// @notice Unused callback since defaults are handled by the clearinghouse.
-    /// @dev Overriden and left empty to save gas.
-    function _onDefault(uint256, uint256, uint256, uint256) internal override {}
+    /// @notice Ensure gOHM is burnt if default happens through the Cooler.
+    function _onDefault(uint256, uint256, uint256, uint256) internal override {
+        uint256 gohmBalance = gohm.balanceOf(address(this));
+        if (gohmBalance != 0) {
+            // Unstake and burn the collateral of the defaulted loans.
+            gohm.approve(address(staking), gohmBalance);
+            MINTR.burnOhm(address(this), staking.unstake(address(this), gohmBalance, false, false));
+        }
+    }
 
     // --- FUNDING ---------------------------------------------------
 
