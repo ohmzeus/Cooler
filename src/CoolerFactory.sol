@@ -13,6 +13,11 @@ import {Cooler} from "./Cooler.sol";
 contract CoolerFactory {
     using ClonesWithImmutableArgs for address;
 
+    // --- ERRORS ----------------------------------------------------
+
+    error NotFromFactory();
+    error DecimalsNot18();
+
     // --- EVENTS ----------------------------------------------------
 
     /// @notice A global event when a new loan request is created.
@@ -55,27 +60,28 @@ contract CoolerFactory {
     /// @param  collateral_ the token given as collateral.
     /// @param  debt_ the token to be lent. Interest is denominated in debt tokens.
     /// @return cooler address of the contract.
-    function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (address cooler) {
-        // Return address if cooler exists.
-        cooler = coolerFor[msg.sender][collateral_][debt_];
+function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (address cooler) {
+    // Return address if cooler exists.
+    cooler = coolerFor[msg.sender][collateral_][debt_];
 
-        // Otherwise generate new cooler.
-        if (cooler == address(0)) {
-            // Clone the cooler implementation.
-            bytes memory coolerData = abi.encodePacked(
-                msg.sender,              // owner
-                address(collateral_),    // collateral
-                address(debt_),          // debt
-                address(this)            // factory
-            );
-            cooler = address(coolerImplementation).clone(coolerData);
+    // Otherwise generate new cooler.
+    if (cooler == address(0)) {
+        if (collateral_.decimals() != 18 || debt_.decimals() != 18) revert DecimalsNot18();
+        // Clone the cooler implementation.
+        bytes memory coolerData = abi.encodePacked(
+            msg.sender,              // owner
+            address(collateral_),    // collateral
+            address(debt_),          // debt
+            address(this)            // factory
+        );
+        cooler = address(coolerImplementation).clone(coolerData);
 
-            // Update storage accordingly.
-            coolerFor[msg.sender][collateral_][debt_] = cooler;
-            coolersFor[collateral_][debt_].push(cooler);
-            created[cooler] = true;
-        }
+        // Update storage accordingly.
+        coolerFor[msg.sender][collateral_][debt_] = cooler;
+        coolersFor[collateral_][debt_].push(cooler);
+        created[cooler] = true;
     }
+}
 
     // --- EMIT EVENTS -----------------------------------------------
 
@@ -93,7 +99,7 @@ contract CoolerFactory {
     /// @param  ev_ event type.
     /// @param  amount_ to be logged by the event.
     function newEvent(uint256 id_, Events ev_, uint256 amount_) external {
-        require(created[msg.sender], "Only Created");
+        if (!created[msg.sender]) revert NotFromFactory();
 
         if (ev_ == Events.RequestLoan) {
             emit RequestLoan(msg.sender, address(Cooler(msg.sender).collateral()), address(Cooler(msg.sender).debt()), id_);

@@ -389,6 +389,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         token_.transfer(address(TRSRY), amount_);
     }
 
+    /// @notice Burn any gOHM defaulted using the Cooler instead of the Clearinghouse.
+    function burn() external {
+        uint256 gohmBalance = gohm.balanceOf(address(this));
+
+        // Unstake and burn gOHM holdings.
+        gohm.approve(address(staking), gohmBalance);
+        MINTR.burnOhm(address(this), staking.unstake(address(this), gohmBalance, false, false));
+    }
+
     /// @notice Deactivate the contract and return funds to treasury.
     function emergencyShutdown() external onlyRole("emergency_shutdown") {
         active = false;

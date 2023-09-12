@@ -321,6 +321,8 @@ contract Cooler is Clone {
         // Update the load lender and the recipient.
         loans[loanID_].lender = msg.sender;
         loans[loanID_].recipient = msg.sender;
+        // Callbacks are disabled when transferring ownership.
+        loans[loanID_].callback = false;
         // Clear transfer approvals.
         approvals[loanID_] = address(0);
     }
@@ -354,10 +356,10 @@ contract Cooler is Clone {
         return (principle_ * interest) / DECIMALS_INTEREST;
     }
 
-    /// @notice Check if given loan is in default.
+    /// @notice Check if given loan has expired.
     /// @param  loanID_ index of loan in loans[].
-    /// @return Defaulted status.
-    function isDefaulted(uint256 loanID_) external view returns (bool) {
+    /// @return Expiration status.
+    function hasExpired(uint256 loanID_) external view returns (bool) {
         return block.timestamp > loans[loanID_].expiry;
     }
 
