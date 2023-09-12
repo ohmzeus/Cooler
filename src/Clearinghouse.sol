@@ -31,6 +31,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     error OnlyBurnable();
     error TooEarlyToFund();
     error LengthDiscrepancy();
+    error OnlyFromClearinghouse();
 
     // --- EVENTS ----------------------------------------------------
 
@@ -205,6 +206,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         for (uint256 i=0; i < loans;) {
             // Validate that cooler was deployed by the trusted factory.
             if (!factory.created(coolers_[i])) revert OnlyFromFactory();
+
+            // Validate that loan was written by clearinghouse.
+            if (Cooler(coolers_[i]).getLoan(loans_[i]).lender != address(this)) revert OnlyFromClearinghouse();
             
             // Claim defaults and update cached metrics.
             (uint256 debt, uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
@@ -256,7 +260,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param *unused loadID_ of the load.
     /// @param amount_ repaid (in DAI).
     function _onRepay(uint256, uint256 amount_) internal override {
-        _sweepIntoDSR(amount_);
+        if (active) {
+            _sweepIntoDSR(amount_);
+        } else {
+            _defund(dai, amount_);
+        }
 
         // Decrement loan receivables.
         receivables = (receivables > amount_) ? receivables - amount_ : 0;
@@ -342,8 +350,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Return funds to treasury.
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
-    function defund(ERC20 token_, uint256 amount_) public onlyRole("cooler_overseer") {
-        if (token_ == gohm) revert OnlyBurnable();
+    function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
+        if (token_ == gOHM) revert OnlyBurnable();
+        _defund(token_, amount_);
+    }
+
+    /// @notice Internal function to return funds to treasury.
+    /// @param  token_ to transfer.
+    /// @param  amount_ to transfer.
+    function _defund(ERC20 token_, uint256 amount_) internal {
         if (token_ == sdai || token_ == dai) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
@@ -368,11 +383,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // If necessary, defund sDAI.
         uint256 sdaiBalance = sdai.balanceOf(address(this));
-        if (sdaiBalance != 0) defund(sdai, sdaiBalance);
+        if (sdaiBalance != 0) _defund(sdai, sdaiBalance);
 
         // If necessary, defund DAI.
         uint256 daiBalance = dai.balanceOf(address(this));
-        if (daiBalance != 0) defund(dai, daiBalance);
+        if (daiBalance != 0) _defund(dai, daiBalance);
 
         emit Deactivated();
     }

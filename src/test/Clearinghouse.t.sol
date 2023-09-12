@@ -706,4 +706,39 @@ contract ClearinghouseTest is Test {
         vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
         clearinghouse.claimDefaulted(coolers, ids);
     }
+
+    function testRevert_claimDefaulted_NotFromClearinghouse() public {
+        // Create legit loan from Clearinghouse
+        (Cooler cooler, , uint256 loanID) = _createLoanForUser(100 * 1e18);
+
+        // Move forward after the loans have ended
+        _skip(clearinghouse.DURATION() + 1);
+        
+        // Attacker creates a fake loan for himself that defaults immediately
+        // to try to steal the defaulted collateral from legit loans.
+        vm.startPrank(others);
+        Cooler maliciousCooler = Cooler(factory.generateCooler(gohm, dai));
+
+        uint256 amountNeeded = maliciousCooler.collateralFor(1e14, 1);
+        gohm.mint(others, amountNeeded);
+        gohm.approve(address(maliciousCooler), amountNeeded);
+        dai.mint(others, amountNeeded);
+        dai.approve(address(maliciousCooler), amountNeeded);
+
+        uint256 reqID = maliciousCooler.requestLoan(1e14, 0, 1, 0);
+        uint256 maliciousLoanID = maliciousCooler.clearRequest(reqID, true, false);
+        vm.stopPrank();
+
+        uint256[] memory ids = new uint256[](2);
+        address[] memory coolers = new address[](2);
+        ids[0] = loanID;
+        coolers[0] = address(cooler);
+        ids[1] = maliciousLoanID;
+        coolers[1] = address(maliciousCooler);
+
+        // Loans not created by the Clearinghouse could be malicious.
+        vm.prank(others);
+        vm.expectRevert(Clearinghouse.OnlyFromClearinghouse.selector);
+        clearinghouse.claimDefaulted(coolers, ids);
+    }
 }
