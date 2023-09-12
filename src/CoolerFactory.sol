@@ -23,8 +23,8 @@ contract CoolerFactory {
     event ClearRequest(address cooler, uint256 reqID);
     /// @notice A global event when a loan is repaid.
     event RepayLoan(address cooler, uint256 loanID, uint256 amount);
-    /// @notice A global event when a loan is rolled over.
-    event RollLoan(address cooler, uint256 loanID);
+    /// @notice A global event when a loan is extended.
+    event ExtendLoan(address cooler, uint256 loanID);
     /// @notice A global event when the collateral of defaulted loan is claimed.
     event DefaultLoan(address cooler, uint256 loanID);
 
@@ -84,7 +84,7 @@ contract CoolerFactory {
         RescindRequest,
         ClearRequest,
         RepayLoan,
-        RollLoan,
+        ExtendLoan,
         DefaultLoan
     }
 
@@ -103,8 +103,8 @@ contract CoolerFactory {
             emit ClearRequest(msg.sender, id_);
         } else if (ev_ == Events.RepayLoan) {
             emit RepayLoan(msg.sender, id_, amount_);
-        } else if (ev_ == Events.RollLoan) {
-            emit RollLoan(msg.sender, id_);
+        } else if (ev_ == Events.ExtendLoan) {
+            emit ExtendLoan(msg.sender, id_);
         } else if (ev_ == Events.DefaultLoan) {
             emit DefaultLoan(msg.sender, id_);
         }

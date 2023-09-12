@@ -33,7 +33,7 @@ contract CoolerFactoryTest is Test {
     event RescindRequest(address cooler, uint256 reqID);
     event ClearRequest(address cooler, uint256 reqID);
     event RepayLoan(address cooler, uint256 loanID, uint256 amount);
-    event RollLoan(address cooler, uint256 loanID);
+    event ExtendLoan(address cooler, uint256 loanID);
     event DefaultLoan(address cooler, uint256 loanID);
 
     function setUp() public {
@@ -103,10 +103,10 @@ contract CoolerFactoryTest is Test {
         vm.expectEmit(true, true, true, false);
         emit RepayLoan(cooler, id, amount);
         coolerFactory.newEvent(id, CoolerFactory.Events.RepayLoan, amount);
-        // Rollover Event
+        // Extend Event
         vm.expectEmit(true, true, false, false);
-        emit RollLoan(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.RollLoan, amount);
+        emit ExtendLoan(cooler, id);
+        coolerFactory.newEvent(id, CoolerFactory.Events.ExtendLoan, amount);
         // Default Event
         vm.expectEmit(true, true, false, false);
         emit DefaultLoan(cooler, id);

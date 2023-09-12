@@ -32,23 +32,16 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 // [X] repayLoan
 //     [X] only possible before expiry
 //     [X] loan is updated
-//     [X] direct (true): new collateral and debt balances are correct
-//     [X] direct (false): new collateral and debt balances are correct
-// [X] claimRepaid
-//     [X] loan is updated
-//     [X] lender and cooler new debt balances are correct
-// [X] setDirectRepay
-//     [X] only the lender can toggle
-//     [X] loan is properly updated
-// [X] rollLoan
+//     [X] recipient (lender): new collateral and debt balances are correct
+//     [X] recipient (others): new collateral and debt balances are correct
+//     [X] callback (true): cannot perform a reentrancy attack
+// [X] setRepaymentAddress
+//     [X] only the lender can change the recipient
+//     [X] loan recipient is properly updated
+// [X] extendLoan
 //     [X] only possible before expiry
-//     [X] only possible for active loans
-//     [X] loan is updated
-//     [X] request is deactivated
-//     [X] user and cooler new collateral balances are correct
-// [X] provideNewTermsForRoll
-//     [X] only lender can set new terms
-//     [X] request is properly updated
+//     [X] only possible by lender
+//     [X] loan is properly updated
 // [X] claimDefaulted
 //     [X] only possible after expiry
 //     [X] lender and cooler new collateral balances are correct
@@ -60,7 +53,7 @@ import {CoolerFactory} from "src/CoolerFactory.sol";
 //     [X] approval stored
 // [X] transferOwnership
 //     [X] only the approved addresses can transfer
-//     [X] loan is properly updated
+//     [X] loan lender and recipient are properly updated
 
 contract CoolerTest is Test {
 
@@ -79,7 +72,6 @@ contract CoolerTest is Test {
     event Repay(address cooler, uint256 loanID, uint256 amount);
     event Rescind(address cooler, uint256 reqID);
     event Request(address cooler, address collateral, address debt, uint256 reqID);
-
 
     // Parameter Bounds
     uint256 public constant INTEREST_RATE = 5e15; // 0.5%
@@ -143,7 +135,9 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred from the cooler
         debt.approve(address(cooler), reqAmount_);
-        uint256 loanID = cooler.clearRequest(reqID_, directRepay_, callbackRepay_);
+        // if repayTo == false, don't send repayment to the lender
+        address repayTo = (directRepay_) ? lender : others;
+        uint256 loanID = cooler.clearRequest(reqID_, repayTo, callbackRepay_);        
         vm.stopPrank();
         return loanID;
     }
@@ -194,15 +188,15 @@ contract CoolerTest is Test {
         );
         vm.stopPrank();
 
-        (uint256 reqAmount, uint256 reqInterest, uint256 reqRatio, uint256 reqDuration, bool reqActive, address requester) = cooler.requests(reqID);
+        Cooler.Request memory req = cooler.getRequest(reqID);
         // check: request storage
         assertEq(0, reqID);
-        assertEq(amount_, reqAmount);
-        assertEq(INTEREST_RATE, reqInterest);
-        assertEq(LOAN_TO_COLLATERAL, reqRatio);
-        assertEq(DURATION, reqDuration);
-        assertEq(true, reqActive);
-        assertEq(owner, requester);
+        assertEq(amount_, req.amount);
+        assertEq(INTEREST_RATE, req.interest);
+        assertEq(LOAN_TO_COLLATERAL, req.loanToCollateral);
+        assertEq(DURATION, req.duration);
+        assertEq(true, req.active);
+        assertEq(owner, req.requester);
         // check: collateral balances
         assertEq(collateral.balanceOf(owner), initOwnerCollateral - reqCollateral);
         assertEq(collateral.balanceOf(address(cooler)), initCoolerCollateral + reqCollateral);
@@ -222,9 +216,10 @@ contract CoolerTest is Test {
 
         vm.prank(owner);
         cooler.rescindRequest(reqID);
-        (,,,, bool reqActive, ) = cooler.requests(reqID);
+        Cooler.Request memory req = cooler.getRequest(reqID);
+
         // check: request storage
-        assertEq(false, reqActive);
+        assertEq(false, req.active);
         // check: collateral balances
         assertEq(collateral.balanceOf(owner), initOwnerCollateral + reqCollateral);
         assertEq(collateral.balanceOf(address(cooler)), initCoolerCollateral - reqCollateral);
@@ -248,17 +243,16 @@ contract CoolerTest is Test {
             DURATION
         );
         vm.stopPrank();
-        {
-        (uint256 reqAmount1, uint256 reqInterest1, uint256 reqRatio1, uint256 reqDuration1, bool reqActive1, address requester1) = cooler.requests(reqID1);
+
+        Cooler.Request memory req1 = cooler.getRequest(reqID1);
         // check: request storage
         assertEq(0, reqID1);
-        assertEq(amount1_, reqAmount1);
-        assertEq(INTEREST_RATE, reqInterest1);
-        assertEq(LOAN_TO_COLLATERAL, reqRatio1);
-        assertEq(DURATION, reqDuration1);
-        assertEq(true, reqActive1);
-        assertEq(owner, requester1);
-        }
+        assertEq(amount1_, req1.amount);
+        assertEq(INTEREST_RATE, req1.interest);
+        assertEq(LOAN_TO_COLLATERAL, req1.loanToCollateral);
+        assertEq(DURATION, req1.duration);
+        assertEq(true, req1.active);
+        assertEq(owner, req1.requester);
 
         // Request ID = 2
         vm.startPrank(others);
@@ -271,43 +265,38 @@ contract CoolerTest is Test {
             DURATION
         );
         vm.stopPrank();
-        {
-        (uint256 reqAmount2, uint256 reqInterest2, uint256 reqRatio2, uint256 reqDuration2, bool reqActive2, address requester2) = cooler.requests(reqID2);
+
+        Cooler.Request memory req2 = cooler.getRequest(reqID2);
         // check: request storage
         assertEq(1, reqID2);
-        assertEq(amount2_, reqAmount2);
-        assertEq(INTEREST_RATE, reqInterest2);
-        assertEq(LOAN_TO_COLLATERAL, reqRatio2);
-        assertEq(DURATION, reqDuration2);
-        assertEq(true, reqActive2);
-        assertEq(others, requester2);
-        }
+        assertEq(amount2_, req2.amount);
+        assertEq(INTEREST_RATE, req2.interest);
+        assertEq(LOAN_TO_COLLATERAL, req2.loanToCollateral);
+        assertEq(DURATION, req2.duration);
+        assertEq(true, req2.active);
+        assertEq(others, req2.requester);
 
         // Rescind Request ID = 1
         vm.prank(owner);
         cooler.rescindRequest(reqID1);
-        {
-        (uint256 reqAmount1, uint256 reqInterest1, uint256 reqRatio1, uint256 reqDuration1, bool reqActive1, address requester1) = cooler.requests(reqID1);
-        // check: request1 storage 
+
+        req1 = cooler.getRequest(reqID1);
+        req2 = cooler.getRequest(reqID2);
+        // check: request storage
         assertEq(0, reqID1);
-        assertEq(amount1_, reqAmount1);
-        assertEq(INTEREST_RATE, reqInterest1);
-        assertEq(LOAN_TO_COLLATERAL, reqRatio1);
-        assertEq(DURATION, reqDuration1);
-        assertEq(false, reqActive1);
-        assertEq(owner, requester1);
-        }
-        {
-        (uint256 reqAmount2, uint256 reqInterest2, uint256 reqRatio2, uint256 reqDuration2, bool reqActive2, address requester2) = cooler.requests(reqID2);
-        // check: request2 storage
+        assertEq(amount1_, req1.amount);
+        assertEq(INTEREST_RATE, req1.interest);
+        assertEq(LOAN_TO_COLLATERAL, req1.loanToCollateral);
+        assertEq(DURATION, req1.duration);
+        assertEq(false, req1.active);
+        assertEq(owner, req1.requester);
         assertEq(1, reqID2);
-        assertEq(amount2_, reqAmount2);
-        assertEq(INTEREST_RATE, reqInterest2);
-        assertEq(LOAN_TO_COLLATERAL, reqRatio2);
-        assertEq(DURATION, reqDuration2);
-        assertEq(true, reqActive2);
-        assertEq(others, requester2);
-        }
+        assertEq(amount2_, req2.amount);
+        assertEq(INTEREST_RATE, req2.interest);
+        assertEq(LOAN_TO_COLLATERAL, req2.loanToCollateral);
+        assertEq(DURATION, req2.duration);
+        assertEq(true, req2.active);
+        assertEq(others, req2.requester);
     }
 
     function testRevertFuzz_rescind_onlyOwner(uint256 amount_) public {
@@ -340,10 +329,9 @@ contract CoolerTest is Test {
 
     // -- CLEAR REQUEST --------------------------------------------------
 
-    function testFuzz_clearRequest(uint256 amount_) public {
+    function testFuzz_clearRequest(uint256 amount_, address recipient_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
         bool callbackRepay = false;
         // test setup
         cooler = _initCooler();
@@ -355,41 +343,31 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        uint256 loanID = cooler.clearRequest(reqID, recipient_, callbackRepay);
         vm.stopPrank();
 
-        { // block scoping to prevent "stack too deep" compiler error
-        (,,,, bool reqActive, ) = cooler.requests(reqID);
+        Cooler.Request memory request = cooler.getRequest(reqID);
         // check: request storage
-        assertEq(false, reqActive);
-        }
-        { // block scoping to prevent "stack too deep" compiler error
-        (,  uint256 loanAmount,
-            uint256 loanUnclaimed,
-            uint256 loanCollat,
-            uint256 loanExpiry,
-            address loanLender,
-            bool loanDirect,
-            bool loanCallback
-        ) = cooler.loans(loanID);
+        assertEq(false, request.active);
+
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
         // check: loan storage
-        assertEq(amount_ + _interestFor(amount_, INTEREST_RATE, DURATION), loanAmount);
-        assertEq(0, loanUnclaimed);
-        assertEq(_collateralFor(amount_), loanCollat);
-        assertEq(block.timestamp + DURATION, loanExpiry);
-        assertEq(lender, loanLender);
-        assertEq(true, loanDirect);
-        assertEq(false, loanCallback);
-        }
+        assertEq(amount_, loan.principle);
+        assertEq(_interestFor(amount_, INTEREST_RATE, DURATION), loan.interestDue);
+        assertEq(_collateralFor(amount_), loan.collateral);
+        assertEq(block.timestamp + DURATION, loan.expiry);
+        assertEq(lender, loan.lender);
+        assertEq(recipient_, loan.recipient);
+        assertEq(false, loan.callback);
+
         // check: debt balances
         assertEq(debt.balanceOf(owner), initOwnerDebt + amount_);
         assertEq(debt.balanceOf(lender), initLenderDebt - amount_);
     }
 
-    function testFuzz_clearRequest_callbackFalse(uint256 amount_) public {
+    function testFuzz_clearRequest_callbackFalse(uint256 amount_, address recipient_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
         bool callbackRepay = false;
         // test setup
         cooler = _initCooler();
@@ -398,7 +376,7 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        uint256 loanID = cooler.clearRequest(reqID, recipient_, callbackRepay);
         vm.stopPrank();
         
         // since lender doesn't implement callbacks they are not enabled.
@@ -406,7 +384,7 @@ contract CoolerTest is Test {
         assertEq(false, loanCallback);
     }
 
-    function testFuzz_clearRequest_callbackTrue_requesterIsNotLender(uint256 amount_) public {
+    function testFuzz_clearRequest_callbackTrue_requesterIsNotLender(uint256 amount_, address recipient_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
@@ -427,7 +405,7 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        uint256 loanID = cooler.clearRequest(reqID, recipient_, callbackRepay);
         vm.stopPrank();
         
         // Requester <> Lender: callbacks are not enabled.
@@ -435,7 +413,7 @@ contract CoolerTest is Test {
         assertEq(false, loanCallback);
     }
 
-    function testFuzz_clearRequest_callbackTrue_requesterIsLender(uint256 amount_) public {
+    function testFuzz_clearRequest_callbackTrue_requesterIsLender(uint256 amount_, address recipient_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
@@ -459,7 +437,7 @@ contract CoolerTest is Test {
         );
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, directRepay, callbackRepay);
+        uint256 loanID = cooler.clearRequest(reqID, recipient_, callbackRepay);
         vm.stopPrank();
         
         // Requester == Lender: callbacks are not enabled.
@@ -470,7 +448,6 @@ contract CoolerTest is Test {
     function testRevertFuzz_clear_onlyActive(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
         bool callbackRepay = false;
         // test setup
         cooler = _initCooler();
@@ -484,7 +461,7 @@ contract CoolerTest is Test {
         debt.approve(address(cooler), amount_);
         // only possible to rescind active requests
         vm.expectRevert(Cooler.Deactivated.selector);
-        cooler.clearRequest(reqID, directRepay, callbackRepay);
+        cooler.clearRequest(reqID, lender, callbackRepay);
         vm.stopPrank();
     }
 
@@ -492,18 +469,25 @@ contract CoolerTest is Test {
 
     function testFuzz_repayLoan_directTrue_callbackFalse(uint256 amount_, uint256 repayAmount_) public {
         // test inputs
-        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
+        repayAmount_ = bound(repayAmount_, 0, MAX_DEBT);
         amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = true;
         bool callbackRepay = false;
-        // cache init vaules
-        uint256 initLoanCollat = _collateralFor(amount_);
-        uint256 initLoanAmount = amount_ + _interestFor(amount_, INTEREST_RATE, DURATION);
-        uint256 decollatAmount = initLoanCollat * repayAmount_ / initLoanAmount;
+
         // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
         uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
+        
+        // cache init vaules
+        uint256 decollatAmount;
+        uint256 initLoanCollat = _collateralFor(amount_);
+        uint256 initInterest = _interestFor(amount_, INTEREST_RATE, DURATION);
+        if (repayAmount_ > initInterest) {
+            decollatAmount = initLoanCollat * (repayAmount_ - initInterest) / amount_;
+        } else {
+            decollatAmount = 0;
+        }
 
         { // block scoping to prevent "stack too deep" compiler error
         // balances after clearing the loan
@@ -520,18 +504,28 @@ contract CoolerTest is Test {
 
         // check: debt and collateral balances
         assertEq(debt.balanceOf(owner), initOwnerDebt - repayAmount_, "owner: debt balance");
-        assertEq(debt.balanceOf(lender), initLenderDebt + repayAmount_, "cooler: debt balance");
+        assertEq(debt.balanceOf(lender), initLenderDebt + repayAmount_, "lender: debt balance");
         assertEq(collateral.balanceOf(owner), initOwnerCollat + decollatAmount, "owner: collat balance");
         assertEq(collateral.balanceOf(address(cooler)), initCoolerCollat - decollatAmount, "cooler: collat balance");
         }
 
-        { // block scoping to prevent "stack too deep" compiler error
-        (, uint256 loanAmount, uint256 loanUnclaimed, uint256 loanCollat,,,,) = cooler.loans(loanID);
-        // check: loan storage
-        assertEq(initLoanAmount - repayAmount_, loanAmount, "outstanding debt");
-        assertEq(0, loanUnclaimed, "unclaimed debt");
-        assertEq(initLoanCollat - decollatAmount, loanCollat, "outstanding collat");
+        // compute rest of initial vaules
+        uint256 repaidInterest;
+        uint256 repaidPrinciple;
+        if (repayAmount_ >= initInterest) {
+            repaidInterest = initInterest;
+            repaidPrinciple = repayAmount_ - initInterest;
+        } else {
+            repaidInterest = repayAmount_;
+            repaidPrinciple = 0;
         }
+        
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
+
+        // check: loan storage
+        assertEq(initLoanCollat - decollatAmount, loan.collateral, "outstanding collat");
+        assertEq(amount_ - repaidPrinciple, loan.principle, "outstanding principle debt");
+        assertEq(initInterest - repaidInterest, loan.interestDue, "outstanding interest debt");
     }
     
     function testFuzz_repayLoan_directFalse_callbackFalse(uint256 amount_, uint256 repayAmount_) public {
@@ -540,21 +534,27 @@ contract CoolerTest is Test {
         amount_ = bound(amount_, repayAmount_, MAX_DEBT);
         bool directRepay = false;
         bool callbackRepay = false;
-        // cache init vaules
-        uint256 initLoanCollat = _collateralFor(amount_);
-        uint256 initLoanAmount = amount_ + _interestFor(amount_, INTEREST_RATE, DURATION);
-        uint256 decollatAmount = initLoanCollat * repayAmount_ / initLoanAmount;
+
         // test setup
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
         uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
+        
+        // cache init vaules
+        uint256 decollatAmount;
+        uint256 initLoanCollat = _collateralFor(amount_);
+        uint256 initInterest = _interestFor(amount_, INTEREST_RATE, DURATION);
+        if (repayAmount_ > initInterest) {
+            decollatAmount = initLoanCollat * (repayAmount_ - initInterest) / amount_;
+        } else {
+            decollatAmount = 0;
+        }
 
         { // block scoping to prevent "stack too deep" compiler error
         // balances after clearing the loan
         uint256 initOwnerDebt = debt.balanceOf(owner);
-        uint256 initCoolerDebt = debt.balanceOf(address(cooler));
-        uint256 initOwnerCollat = collateral.balanceOf(owner);
-        uint256 initCoolerCollat = collateral.balanceOf(address(cooler));
+        uint256 initLenderDebt = debt.balanceOf(lender);
+        uint256 initOthersDebt = debt.balanceOf(others);
 
         vm.startPrank(owner);
         // aprove debt so that it can be transferred by cooler
@@ -564,18 +564,27 @@ contract CoolerTest is Test {
 
         // check: debt and collateral balances
         assertEq(debt.balanceOf(owner), initOwnerDebt - repayAmount_, "owner: debt balance");
-        assertEq(debt.balanceOf(address(cooler)), initCoolerDebt + repayAmount_, "cooler: debt balance");
-        assertEq(collateral.balanceOf(owner), initOwnerCollat + decollatAmount, "owner: collat balance");
-        assertEq(collateral.balanceOf(address(cooler)), initCoolerCollat - decollatAmount, "cooler: collat balance");
+        assertEq(debt.balanceOf(lender), initLenderDebt, "lender: debt balance");
+        assertEq(debt.balanceOf(others), initOthersDebt + repayAmount_, "lender: debt balance");
         }
 
-        { // block scoping to prevent "stack too deep" compiler error
-        (, uint256 loanAmount, uint256 loanUnclaimed, uint256 loanCollat,,,,) = cooler.loans(loanID);
-        // check: loan storage
-        assertEq(initLoanAmount - repayAmount_, loanAmount, "outstanding debt");
-        assertEq(repayAmount_, loanUnclaimed, "unclaimed debt");
-        assertEq(initLoanCollat - decollatAmount, loanCollat, "outstanding collat");
+        // compute rest of initial vaules
+        uint256 repaidInterest;
+        uint256 repaidPrinciple;
+        if (repayAmount_ >= initInterest) {
+            repaidInterest = initInterest;
+            repaidPrinciple = repayAmount_ - initInterest;
+        } else {
+            repaidInterest = repayAmount_;
+            repaidPrinciple = 0;
         }
+        
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
+
+        // check: loan storage
+        assertEq(initLoanCollat - decollatAmount, loan.collateral, "outstanding collat");
+        assertEq(amount_ - repaidPrinciple, loan.principle, "outstanding principle debt");
+        assertEq(initInterest - repaidInterest, loan.interestDue, "outstanding interest debt");
     }
     
     function testRevertFuzz_repayLoan_defaulted(uint256 amount_, uint256 repayAmount_) public {
@@ -601,46 +610,9 @@ contract CoolerTest is Test {
         vm.stopPrank();
     }
 
-    // -- CLAIM REPAID ---------------------------------------------------
-    
-    function test_claimRepaid(uint256 amount_, uint256 repayAmount_) public {
-        // test inputs
-        repayAmount_ = bound(repayAmount_, 1e10, MAX_DEBT);  // min > 0 to have some decollateralization
-        amount_ = bound(amount_, repayAmount_, MAX_DEBT);
-        bool directRepay = false;
-        bool callbackRepay = false;
-        // test setup
-        cooler = _initCooler();
-        (uint256 reqID, ) = _requestLoan(amount_);
-        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
-
-        vm.startPrank(owner);
-        // aprove debt so that it can be transferred by cooler
-        debt.approve(address(cooler), amount_);
-        cooler.repayLoan(loanID, repayAmount_);
-        vm.stopPrank();
-
-        { // block scoping to prevent "stack too deep" compiler error
-        // balances after repaying the loan
-        uint256 initLenderDebt = debt.balanceOf(lender);
-        uint256 initCoolerDebt = debt.balanceOf(address(cooler));
-
-        vm.prank(lender);
-        cooler.claimRepaid(loanID);
-
-        // check: debt balances
-        assertEq(debt.balanceOf(lender), initLenderDebt + repayAmount_);
-        assertEq(debt.balanceOf(address(cooler)), initCoolerDebt - repayAmount_);
-        }
-
-        (,, uint256 loanUnclaimed,,,,,) = cooler.loans(loanID);
-        // check: loan storage
-        assertEq(0, loanUnclaimed);
-    }
-
     // -- SET DIRECT REPAYMENT -------------------------------------------
 
-    function testFuzz_setDirectRepay(uint256 amount_) public {
+    function testFuzz_setRepaymentAddress(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
@@ -652,20 +624,20 @@ contract CoolerTest is Test {
 
         vm.startPrank(lender);
         // turn direct repay off
-        cooler.setDirectRepay(loanID, false);
-        (,,,,,, bool repayDirect,) = cooler.loans(loanID);
+        cooler.setRepaymentAddress(loanID, address(0));
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
         // check: loan storage
-        assertEq(false, repayDirect);
+        assertEq(address(0), loan.recipient);
         
         // turn direct repay on
-        cooler.setDirectRepay(loanID, true);
-        (,,,,,, repayDirect,) = cooler.loans(loanID);
+        cooler.setRepaymentAddress(loanID, lender);
+        loan = cooler.getLoan(loanID);
         // check: loan storage
-        assertEq(true, repayDirect);
+        assertEq(lender, loan.recipient);
         vm.stopPrank();
     }
 
-    function testRevertFuzz_setDirectRepay_onlyLender(uint256 amount_) public {
+    function testRevertFuzz_setRepaymentAddress_onlyLender(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
@@ -678,7 +650,7 @@ contract CoolerTest is Test {
         vm.prank(others);
         // only lender turn toggle the direct repay
         vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.setDirectRepay(loanID, true);
+        cooler.setRepaymentAddress(loanID, address(0));
     }
 
     // -- CLAIM DEFAULTED ------------------------------------------------
@@ -699,25 +671,18 @@ contract CoolerTest is Test {
         vm.prank(lender);
         cooler.claimDefaulted(loanID);
 
-        (,  uint256 loanAmount,
-            uint256 loanUnclaimed,
-            uint256 loanCollat,
-            uint256 loanExpiry,
-            address loanLender,
-            bool loanDirect,
-            bool loanCallback
-        ) = cooler.loans(loanID);
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
         
         // check: loan storage
         // - only amount and collateral are cleared
-        assertEq(0, loanAmount);
-        assertEq(0, loanCollat);
+        assertEq(0, loan.principle);
+        assertEq(0, loan.interestDue);
+        assertEq(0, loan.collateral);
         // - the rest of the variables are untouched
-        assertEq(0, loanUnclaimed);
-        assertEq(block.timestamp - 1, loanExpiry);
-        assertEq(lender, loanLender);
-        assertEq(true, loanDirect);
-        assertEq(false, loanCallback);
+        assertEq(block.timestamp - 1, loan.expiry);
+        assertEq(lender, loan.lender);
+        assertEq(lender, loan.recipient);
+        assertEq(false, loan.callback);
     }
 
     function test_claimDefaulted_multipleLoansAndFirstOneDefaults(uint256 amount_) public {
@@ -725,7 +690,6 @@ contract CoolerTest is Test {
         uint256 amount1_ = bound(amount_, 0, MAX_DEBT / 3);
         uint256 amount2_ = 2 * amount1_;
         bool callbackRepay = false;
-        bool directRepay = true;
         // test setup
         cooler = _initCooler();
         // Request ID = 1
@@ -741,8 +705,8 @@ contract CoolerTest is Test {
         // Clear both requests
         vm.startPrank(lender);
         debt.approve(address(cooler), amount1_ + amount2_);
-        uint256 loanID1 = cooler.clearRequest(reqID1, directRepay, callbackRepay);
-        uint256 loanID2 = cooler.clearRequest(reqID2, directRepay, callbackRepay);
+        uint256 loanID1 = cooler.clearRequest(reqID1, lender, callbackRepay);
+        uint256 loanID2 = cooler.clearRequest(reqID2, lender, callbackRepay);
         vm.stopPrank();
 
         // block.timestamp > loan expiry
@@ -751,44 +715,27 @@ contract CoolerTest is Test {
         // claim defaulted loan ID = 1
         vm.prank(lender);
         cooler.claimDefaulted(loanID1);
-        {
-        (,  uint256 loanAmount1,
-            uint256 loanUnclaimed1,
-            uint256 loanCollat1,
-            uint256 loanExpiry1,
-            address loanLender1,
-            bool loanDirect1,
-            bool loanCallback1
-        ) = cooler.loans(loanID1);
+        
+        Cooler.Loan memory loan1 = cooler.getLoan(loanID1);
+        Cooler.Loan memory loan2 = cooler.getLoan(loanID2);
         
         // check: loan ID = 1 storage
-        assertEq(0, loanAmount1, "loanAmount1");
-        assertEq(0, loanUnclaimed1, "loanUnclaimed1");
-        assertEq(0, loanCollat1, "loanCollat1");
-        assertEq(block.timestamp - 1, loanExpiry1, "loanExpiry1");
-        assertEq(lender, loanLender1, "loanLender1");
-        assertEq(true, loanDirect1, "loanDirect1");
-        assertEq(false, loanCallback1, "loanCallback1");
-        }
-        {
-        (,  uint256 loanAmount2,
-            uint256 loanUnclaimed2,
-            uint256 loanCollat2,
-            uint256 loanExpiry2,
-            address loanLender2,
-            bool loanDirect2,
-            bool loanCallback2
-        ) = cooler.loans(loanID2);
+        assertEq(0, loan1.principle, "loanAmount1");
+        assertEq(0, loan1.interestDue, "loanInterest1");
+        assertEq(0, loan1.collateral, "loanCollat1");
+        assertEq(block.timestamp - 1, loan1.expiry, "loanExpiry1");
+        assertEq(lender, loan1.lender, "loanLender1");
+        assertEq(lender, loan1.recipient, "loanRecipient1");
+        assertEq(false, loan1.callback, "loanCallback1");
         
         // check: loan ID = 2 storage
-        assertEq(amount2_ + _interestFor(amount2_, INTEREST_RATE/2, DURATION*2), loanAmount2, "loanAmount2");
-        assertEq(0, loanUnclaimed2, "loanUnclaimed2");
-        assertEq(_collateralFor(amount2_), loanCollat2, "loanCollat2");
-        assertEq(51 * 365 * 24 * 60 * 60 + DURATION * 2, loanExpiry2, "loanExpiry2");
-        assertEq(lender, loanLender2, "loanLender2");
-        assertEq(true, loanDirect2, "loanDirect2");
-        assertEq(false, loanCallback2, "loanCallback2");
-        }
+        assertEq(amount2_, loan2.principle, "loanAmount2");
+        assertEq(_interestFor(amount2_, INTEREST_RATE/2, DURATION*2), loan2.interestDue, "loanInterest2");
+        assertEq(_collateralFor(amount2_), loan2.collateral, "loanCollat2");
+        assertEq(51 * 365 * 24 * 60 * 60 + DURATION * 2, loan2.expiry, "loanExpiry2");
+        assertEq(lender, loan2.lender, "loanLender2");
+        assertEq(lender, loan2.recipient, "loanDirect2");
+        assertEq(false, loan2.callback, "loanCallback2");
     }
 
     function testRevertFuzz_defaulted_notExpired(uint256 amount_) public {
@@ -888,9 +835,10 @@ contract CoolerTest is Test {
         vm.prank(others);
         cooler.transferOwnership(loanID);
 
-        (,,,,, address loanLender,,) = cooler.loans(loanID);
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
         // check: loan storage
-        assertEq(others, loanLender);
+        assertEq(others, loan.lender);
+        assertEq(others, loan.recipient);
         assertEq(address(0), cooler.approvals(loanID));
     }
 
@@ -909,59 +857,9 @@ contract CoolerTest is Test {
         cooler.transferOwnership(loanID);
     }
 
-    // -- PROVIDE NEW ROLL TERMS -----------------------------------------
+    // -- EXTEND LOAN ------------------------------------------------------
 
-    function testFuzz_newRollTerms(uint256 amount_) public {
-        // test inputs
-        amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
-        bool callbackRepay = false;
-        // test setup
-        cooler = _initCooler();
-        (uint256 reqID, ) = _requestLoan(amount_);
-        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
-
-        vm.prank(lender);
-        cooler.provideNewTermsForRoll(
-            loanID,
-            INTEREST_RATE * 2,
-            LOAN_TO_COLLATERAL / 2,
-            DURATION * 2
-        );
-
-        (Cooler.Request memory request, uint256 loanAmount,,,,,,) = cooler.loans(loanID);
-
-        // check: request storage
-        assertEq(loanAmount, request.amount);
-        assertEq(INTEREST_RATE * 2, request.interest);
-        assertEq(LOAN_TO_COLLATERAL / 2, request.loanToCollateral);
-        assertEq(DURATION * 2, request.duration);
-        assertEq(true, request.active);
-    }
-
-    function testRevert_newRollTerms_onlyLender(uint256 amount_) public {
-        // test inputs
-        amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
-        bool callbackRepay = false;
-        // test setup
-        cooler = _initCooler();
-        (uint256 reqID, ) = _requestLoan(amount_);
-        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
-
-        vm.prank(others);
-        vm.expectRevert(Cooler.OnlyApproved.selector);
-        cooler.provideNewTermsForRoll(
-            loanID,
-            INTEREST_RATE * 2,
-            LOAN_TO_COLLATERAL / 2,
-            DURATION * 2
-        );
-    }
-
-    // -- ROLL LOAN ------------------------------------------------------
-
-    function testFuzz_rollLoan(uint256 amount_) public {
+    function testFuzz_extendLoanTerms(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT / 2);
         bool directRepay = true;
@@ -971,39 +869,81 @@ contract CoolerTest is Test {
         (uint256 reqID, ) = _requestLoan(amount_);
         uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
 
-        vm.prank(lender);
-        cooler.provideNewTermsForRoll(
-            loanID,
-            INTEREST_RATE * 2,
-            LOAN_TO_COLLATERAL / 2,
-            DURATION * 2
-        );
-        
-        { // block scoping to prevent "stack too deep" compiler error
-        // balances after providing new terms to roll the loan
-        uint256 initOwnerCollat = collateral.balanceOf(owner);
-        uint256 initCoolerCollat = collateral.balanceOf(address(cooler));
-        // aux calculations to get the newCollat amount_ after rolling the loan
-        (, uint256 loanAmount,, uint256 loanCollat,,,,) = cooler.loans(loanID);
-        uint256 rollCollat = loanAmount * DECIMALS / (LOAN_TO_COLLATERAL / 2);
-        uint256 newCollat = rollCollat > loanCollat ? rollCollat - loanCollat : 0;
-   
-        vm.startPrank(owner);
-        // aprove collateral so that it can be transferred by cooler
-        collateral.approve(address(cooler), newCollat);
-        cooler.rollLoan(loanID);
-        vm.stopPrank();
+        Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
-        // check: debt balances
-        assertEq(collateral.balanceOf(owner), initOwnerCollat - newCollat);
-        assertEq(collateral.balanceOf(address(cooler)), initCoolerCollat + newCollat);
-        }
-        Cooler.Loan memory loan = cooler.getLoan(loanID);
+        vm.warp((block.timestamp + initLoan.expiry) / 2);
+        // simulate owner repaying interest to lender before extending the loan.
+        // repayment is made using `repayLoan` to alter the `interestDue` and later
+        // on assert that extending the loan resetets the interest owed.
+        vm.startPrank(owner);
+        debt.approve(address(cooler), initLoan.interestDue);
+        cooler.repayLoan(loanID, initLoan.interestDue);
+        vm.stopPrank();
+        
+        // cache balances after owner has repaid the interest to the lender
+        uint256 initOwnerDebt = debt.balanceOf(owner);
+        uint256 initLenderDebt = debt.balanceOf(lender);
+   
+        // lender decides to extend the loan
+        vm.prank(lender);
+        cooler.extendLoanTerms(loanID, 1);
+
+        Cooler.Loan memory extendedloan = cooler.getLoan(loanID);
+
+        // check: debt balances didn't change
+        assertEq(debt.balanceOf(owner), initOwnerDebt);
+        assertEq(debt.balanceOf(lender), initLenderDebt);
         // check: loan storage
-        assertEq(loan.request.active, false);
+        assertEq(extendedloan.expiry, initLoan.expiry + initLoan.request.duration);
+        assertEq(
+            extendedloan.interestDue,
+            _interestFor(initLoan.request.amount, initLoan.request.interest, initLoan.request.duration)
+        );
     }
 
-    function testRevertFuzz_roll_onlyActive(uint256 amount_) public {
+    function testFuzz_extendLoanTerms_severalTimes(uint256 amount_, uint8 times_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT / 2);
+        bool directRepay = true;
+        bool callbackRepay = false;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount_);
+        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
+
+        Cooler.Loan memory initLoan = cooler.getLoan(loanID);
+
+        vm.warp((block.timestamp + initLoan.expiry) / 2);
+        // simulate owner repaying interest to lender before extending the loan.
+        // repayment is made using `repayLoan` to alter the `interestDue` and later
+        // on assert that extending the loan resetets the interest owed.
+        vm.startPrank(owner);
+        debt.approve(address(cooler), initLoan.interestDue);
+        cooler.repayLoan(loanID, initLoan.interestDue);
+        vm.stopPrank();
+        
+        // cache balances after owner has repaid the interest to the lender
+        uint256 initOwnerDebt = debt.balanceOf(owner);
+        uint256 initLenderDebt = debt.balanceOf(lender);
+   
+        // lender decides to extend the loan
+        vm.prank(lender);
+        cooler.extendLoanTerms(loanID, times_);
+
+        Cooler.Loan memory extendedloan = cooler.getLoan(loanID);
+
+        // check: debt balances didn't change
+        assertEq(debt.balanceOf(owner), initOwnerDebt);
+        assertEq(debt.balanceOf(lender), initLenderDebt);
+        // check: loan storage
+        assertEq(extendedloan.expiry, initLoan.expiry + initLoan.request.duration * times_);
+        assertEq(
+            extendedloan.interestDue,
+            _interestFor(initLoan.request.amount, initLoan.request.interest, initLoan.request.duration)
+        );
+    }
+
+    function testRevertFuzz_extendLoanTerms_onlyLender(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
@@ -1014,12 +954,12 @@ contract CoolerTest is Test {
         uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
    
         vm.prank(owner);
-        // not rollable unless lender provides new terms for rolling
-        vm.expectRevert(Cooler.NotRollable.selector);
-        cooler.rollLoan(loanID);
+        // only extendable by the lender
+        vm.expectRevert(Cooler.OnlyApproved.selector);
+        cooler.extendLoanTerms(loanID, 1);
     }
 
-    function testRevertFuzz_roll_defaulted(uint256 amount_) public {
+    function testRevertFuzz_extendLoanTerms_defaulted(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool directRepay = true;
@@ -1028,21 +968,53 @@ contract CoolerTest is Test {
         cooler = _initCooler();
         (uint256 reqID, ) = _requestLoan(amount_);
         uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
-   
-        vm.prank(lender);
-        cooler.provideNewTermsForRoll(
-            loanID,
-            INTEREST_RATE * 2,
-            LOAN_TO_COLLATERAL / 2,
-            DURATION * 2
-        );
         
         // block.timestamp > loan expiry
         vm.warp(block.timestamp + DURATION * 2 + 1);
 
-        vm.prank(owner);
-        // can't roll an expired loan
+        vm.prank(lender);
+        // can't extend an expired loan
         vm.expectRevert(Cooler.Default.selector);
-        cooler.rollLoan(loanID);
+        cooler.extendLoanTerms(loanID, 1);
+    }
+
+    function test_collateralFor_debtDecimalsHigh() public {
+        uint8 collateralDecimals = 6;   // collateral: USDC
+        uint8 debtDecimals = 18;        // debt: WETH
+
+        // Both values are in terms of debt decimals
+        uint256 loanToCollateral_ = (10 ** collateralDecimals) * 1e18 / 2000e6; // 1 WETH : 2000 USDC
+        uint256 amount_ = 1e18;
+
+        // Create the tokens
+        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
+        debt = new MockERC20("Debt", "DEBT", debtDecimals);
+
+        // Instantiate a new cooler
+        cooler = _initCooler();
+
+        // collateralFor() should return the correct amount of collateral tokens
+        uint256 collateralFor = cooler.collateralFor(amount_, loanToCollateral_);
+        assertEq(collateralFor, 2000e6, "USDC");
+    }
+
+    function test_collateralFor_debtDecimalsLow() public {
+        uint8 collateralDecimals = 18;  // collateral: WETH
+        uint8 debtDecimals = 6;         // debt: USDC
+
+        // Both values are in terms of debt decimals
+        uint256 loanToCollateral_ = (10 ** collateralDecimals) * 2000e6 / 1e18; // 2000 USDC : 1 WETH
+        uint256 amount_ = 2000e6;
+
+        // Create the tokens
+        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
+        debt = new MockERC20("Debt", "DEBT", debtDecimals);
+
+        // Instantiate a new cooler
+        cooler = _initCooler();
+
+        // collateralFor() should return the correct amount of collateral tokens
+        uint256 collateralFor = cooler.collateralFor(amount_, loanToCollateral_);
+        assertEq(collateralFor, 1e18, "ETH");
     }
 }
