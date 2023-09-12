@@ -106,6 +106,7 @@ contract ClearinghouseTest is Test {
         ROLES = new OlympusRoles(kernel);
 
         clearinghouse = new Clearinghouse(
+            address(ohm),
             address(gohm),
             address(staking),
             address(sdai),
