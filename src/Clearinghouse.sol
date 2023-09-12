@@ -351,7 +351,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  token_ to transfer.
     /// @param  amount_ to transfer.
     function defund(ERC20 token_, uint256 amount_) external onlyRole("cooler_overseer") {
-        if (token_ == gOHM) revert OnlyBurnable();
+        if (token_ == gohm) revert OnlyBurnable();
         _defund(token_, amount_);
     }
 
