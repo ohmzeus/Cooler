@@ -79,6 +79,25 @@ contract CoolerFactoryTest is Test {
         assertEq(otherCoolerBob, coolerFactory.coolersFor(collateral, otherDebt, 0));
     }
 
+    function testRevert_wrongDecimals() public {
+        // Create the wrong tokens
+        MockERC20 wrongCollateral = new MockERC20("Collateral", "COL", 6);
+        MockERC20 wrongDebt = new MockERC20("Debt", "DEBT", 6);
+
+        // Only tokens with 18 decimals are allowed
+        vm.startPrank(alice);
+
+        // Collateral with 6 decimals
+        vm.expectRevert(CoolerFactory.DecimalsNot18.selector);
+        coolerFactory.generateCooler(wrongCollateral, debt);
+        // Debt with 6 decimals        
+        vm.expectRevert(CoolerFactory.DecimalsNot18.selector);
+        coolerFactory.generateCooler(collateral, wrongDebt);
+        // Both with 6 decimals
+        vm.expectRevert(CoolerFactory.DecimalsNot18.selector);
+        coolerFactory.generateCooler(wrongCollateral, wrongDebt);
+    }
+
     function test_newEvent() public {
         uint256 id = 0;
         uint256 amount = 1234;
@@ -119,7 +138,7 @@ contract CoolerFactoryTest is Test {
 
         // Only coolers can emit events
         vm.prank(alice);
-        vm.expectRevert("Only Created");
+        vm.expectRevert(CoolerFactory.NotFromFactory.selector);
         coolerFactory.newEvent(id, CoolerFactory.Events.ClearRequest, amount);
     }
 }

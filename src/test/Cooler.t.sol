@@ -977,44 +977,4 @@ contract CoolerTest is Test {
         vm.expectRevert(Cooler.Default.selector);
         cooler.extendLoanTerms(loanID, 1);
     }
-
-    function test_collateralFor_debtDecimalsHigh() public {
-        uint8 collateralDecimals = 6;   // collateral: USDC
-        uint8 debtDecimals = 18;        // debt: WETH
-
-        // Both values are in terms of debt decimals
-        uint256 loanToCollateral_ = (10 ** collateralDecimals) * 1e18 / 2000e6; // 1 WETH : 2000 USDC
-        uint256 amount_ = 1e18;
-
-        // Create the tokens
-        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
-        debt = new MockERC20("Debt", "DEBT", debtDecimals);
-
-        // Instantiate a new cooler
-        cooler = _initCooler();
-
-        // collateralFor() should return the correct amount of collateral tokens
-        uint256 collateralFor = cooler.collateralFor(amount_, loanToCollateral_);
-        assertEq(collateralFor, 2000e6, "USDC");
-    }
-
-    function test_collateralFor_debtDecimalsLow() public {
-        uint8 collateralDecimals = 18;  // collateral: WETH
-        uint8 debtDecimals = 6;         // debt: USDC
-
-        // Both values are in terms of debt decimals
-        uint256 loanToCollateral_ = (10 ** collateralDecimals) * 2000e6 / 1e18; // 2000 USDC : 1 WETH
-        uint256 amount_ = 2000e6;
-
-        // Create the tokens
-        collateral = new MockGohm("Collateral", "COL", collateralDecimals);
-        debt = new MockERC20("Debt", "DEBT", debtDecimals);
-
-        // Instantiate a new cooler
-        cooler = _initCooler();
-
-        // collateralFor() should return the correct amount of collateral tokens
-        uint256 collateralFor = cooler.collateralFor(amount_, loanToCollateral_);
-        assertEq(collateralFor, 1e18, "ETH");
-    }
 }

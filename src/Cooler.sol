@@ -321,6 +321,8 @@ contract Cooler is Clone {
         // Update the load lender and the recipient.
         loans[loanID_].lender = msg.sender;
         loans[loanID_].recipient = msg.sender;
+        // Callbacks are disabled when transferring ownership.
+        loans[loanID_].callback = false;
         // Clear transfer approvals.
         approvals[loanID_] = address(0);
     }

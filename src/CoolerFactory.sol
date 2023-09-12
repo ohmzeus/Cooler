@@ -15,6 +15,7 @@ contract CoolerFactory {
 
     // --- ERRORS ----------------------------------------------------
 
+    error NotFromFactory();
     error DecimalsNot18();
 
     // --- EVENTS ----------------------------------------------------
@@ -65,7 +66,7 @@ function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (addres
 
     // Otherwise generate new cooler.
     if (cooler == address(0)) {
-        if (collateral_.decimals() != 18 || collateral_.decimals() != 18) revert DecimalsNot18();
+        if (collateral_.decimals() != 18 || debt_.decimals() != 18) revert DecimalsNot18();
         // Clone the cooler implementation.
         bytes memory coolerData = abi.encodePacked(
             msg.sender,              // owner
@@ -98,7 +99,7 @@ function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (addres
     /// @param  ev_ event type.
     /// @param  amount_ to be logged by the event.
     function newEvent(uint256 id_, Events ev_, uint256 amount_) external {
-        require(created[msg.sender], "Only Created");
+        if (!created[msg.sender]) revert NotFromFactory();
 
         if (ev_ == Events.RequestLoan) {
             emit RequestLoan(msg.sender, address(Cooler(msg.sender).collateral()), address(Cooler(msg.sender).debt()), id_);
