@@ -86,7 +86,7 @@ contract ClearinghouseTest is Test {
     uint256 internal initialSDai;
 
     // Clearinghouse Expected events
-    event Defund(int256 amount);
+    event Defund(address token, int256 amount);
     event Rebalance(int256 amount);
     event Deactivate();
     event Reactivate();

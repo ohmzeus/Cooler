@@ -375,7 +375,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Defund and log the event
         token_.transfer(address(TRSRY), amount_);
-        emit Defund(address(token), - int256(amount_));
+        emit Defund(address(token_), - int256(amount_));
     }
 
     /// @notice Deactivate the contract and return funds to treasury.
