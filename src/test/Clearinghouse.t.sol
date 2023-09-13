@@ -85,6 +85,12 @@ contract ClearinghouseTest is Test {
     address internal overseer;
     uint256 internal initialSDai;
 
+    // Clearinghouse Expected events
+    event Defund(address token, int256 amount);
+    event Rebalance(int256 amount);
+    event Deactivate();
+    event Reactivate();
+
     function setUp() public {
         address[] memory users = (new UserFactory()).create(3);
         user = users[0];
@@ -137,6 +143,7 @@ contract ClearinghouseTest is Test {
 
         // Initial rebalance to fund the clearinghouse
         clearinghouse.rebalance();
+
 
         testCooler = Cooler(factory.generateCooler(gohm, dai));
 
@@ -428,6 +435,10 @@ contract ClearinghouseTest is Test {
         uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
         uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
 
+        // Ensure that the event is emitted
+        vm.expectEmit(address(clearinghouse));
+        emit Rebalance(int256(sdai.previewWithdraw(oneMillion)));
+        // Rebalance
         clearinghouse.rebalance();
 
         assertEq(daiInitTRSRY - oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
@@ -477,6 +488,10 @@ contract ClearinghouseTest is Test {
         uint256 daiInitTRSRY = sdai.maxWithdraw(address(TRSRY));
         uint256 sdaiInitTRSRY = sdai.balanceOf(address(TRSRY));
 
+        // Ensure that the event is emitted
+        vm.expectEmit(address(clearinghouse));
+        emit Rebalance(- int256(sdai.previewWithdraw(oneMillion)));
+        // Rebalance
         clearinghouse.rebalance();
 
         assertEq(daiInitTRSRY + oneMillion, sdai.maxWithdraw(address(TRSRY)), "DAI balance TRSRY");
@@ -548,6 +563,11 @@ contract ClearinghouseTest is Test {
         uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
         uint256 initDebtCH = TRSRY.reserveDebt(dai, address(clearinghouse));
 
+
+        // Ensure that the event is emitted
+        vm.expectEmit(address(clearinghouse));
+        emit Defund(address(sdai), - int256(sdai.previewRedeem(1e24)));
+        // Defund
         vm.prank(overseer);
         clearinghouse.defund(sdai, 1e24);
         assertEq(sdai.balanceOf(address(TRSRY)), sdaiTrsryBal + 1e24);
@@ -572,6 +592,10 @@ contract ClearinghouseTest is Test {
         uint256 sdaiTrsryBal = sdai.balanceOf(address(TRSRY));
         uint256 sdaiCHBal = sdai.balanceOf(address(clearinghouse));
 
+        // Ensure that the event is emitted
+        vm.expectEmit(address(clearinghouse));
+        emit Deactivate();
+        // Deactivate
         vm.prank(overseer);
         clearinghouse.emergencyShutdown();
         assertEq(clearinghouse.active(), false);
@@ -588,6 +612,11 @@ contract ClearinghouseTest is Test {
         vm.startPrank(overseer);
         clearinghouse.emergencyShutdown();
         assertEq(clearinghouse.active(), false);
+        
+        // Ensure that the event is emitted
+        vm.expectEmit(address(clearinghouse));
+        emit Reactivate();
+        // Reactivate
         clearinghouse.reactivate();
         assertEq(clearinghouse.active(), true);
         vm.stopPrank();

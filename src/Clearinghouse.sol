@@ -36,8 +36,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- EVENTS ----------------------------------------------------
 
-    event Deactivated();
-    event Reactivated();
+    event Defund(address token, int256 amount);
+    event Rebalance(int256 amount);
+    event Deactivate();
+    event Reactivate();
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
@@ -325,9 +327,13 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             TRSRY.increaseWithdrawApproval(address(this), sdai, sdaiAmount);
             TRSRY.withdrawReserves(address(this), sdai, sdaiAmount);
 
+            // Log the event.
+            emit Rebalance(int256(sdaiAmount));
+
             // Sweep DAI into DSR if necessary.
             uint256 idle = dai.balanceOf(address(this));
             if (idle != 0) _sweepIntoDSR(idle);
+
         } else if (daiBalance > maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
             // debt is set in DAI terms. It must be adjusted when defunding.
@@ -343,7 +349,11 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             uint256 sdaiAmount = sdai.previewWithdraw(defundAmount);
             sdai.approve(address(TRSRY), sdaiAmount);
             sdai.transfer(address(TRSRY), sdaiAmount);
+
+            // Log the event.
+            emit Rebalance(- int256(sdaiAmount));
         }
+
         return true;
     }
 
@@ -386,7 +396,9 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             });
         }
 
+        // Defund and log the event
         token_.transfer(address(TRSRY), amount_);
+        emit Defund(address(token_), - int256(amount_));
     }
 
     /// @notice Deactivate the contract and return funds to treasury.
@@ -401,14 +413,14 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 daiBalance = dai.balanceOf(address(this));
         if (daiBalance != 0) _defund(dai, daiBalance);
 
-        emit Deactivated();
+        emit Deactivate();
     }
 
     /// @notice Reactivate the contract.
     function reactivate() external onlyRole("cooler_overseer") {
         active = true;
 
-        emit Reactivated();
+        emit Reactivate();
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------

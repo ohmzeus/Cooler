@@ -13,20 +13,24 @@ import {Cooler} from "./Cooler.sol";
 contract CoolerFactory {
     using ClonesWithImmutableArgs for address;
 
+    // --- ERRORS ----------------------------------------------------
+
+    error OnlyFromFactory();
+
     // --- EVENTS ----------------------------------------------------
 
     /// @notice A global event when a new loan request is created.
-    event RequestLoan(address cooler, address collateral, address debt, uint256 reqID);
+    event RequestLoan(address indexed cooler, address collateral, address debt, uint256 reqID);
     /// @notice A global event when a loan request is rescinded.
-    event RescindRequest(address cooler, uint256 reqID);
+    event RescindRequest(address indexed cooler, uint256 reqID);
     /// @notice A global event when a loan request is fulfilled.
-    event ClearRequest(address cooler, uint256 reqID);
+    event ClearRequest(address indexed cooler, uint256 reqID, uint256 loanID);
     /// @notice A global event when a loan is repaid.
-    event RepayLoan(address cooler, uint256 loanID, uint256 amount);
+    event RepayLoan(address indexed cooler, uint256 loanID, uint256 amount);
     /// @notice A global event when a loan is extended.
-    event ExtendLoan(address cooler, uint256 loanID);
+    event ExtendLoan(address indexed cooler, uint256 loanID, uint8 times);
     /// @notice A global event when the collateral of defaulted loan is claimed.
-    event DefaultLoan(address cooler, uint256 loanID);
+    event DefaultLoan(address indexed cooler, uint256 loanID);
 
     // -- STATE VARIABLES --------------------------------------------
 
@@ -79,34 +83,39 @@ contract CoolerFactory {
 
     // --- EMIT EVENTS -----------------------------------------------
 
-    enum Events {
-        RequestLoan,
-        RescindRequest,
-        ClearRequest,
-        RepayLoan,
-        ExtendLoan,
-        DefaultLoan
+    /// @notice Ensure that the called is a Cooler.
+    modifier onlyFromFactory {        
+        if (!created[msg.sender]) revert OnlyFromFactory();
+        _;
     }
 
-    /// @notice emit an event each time a request is interacted with on a Cooler.
-    /// @param  id_ loan or request identifier.
-    /// @param  ev_ event type.
-    /// @param  amount_ to be logged by the event.
-    function newEvent(uint256 id_, Events ev_, uint256 amount_) external {
-        require(created[msg.sender], "Only Created");
+    /// @notice Emit a global event when a new loan request is created.
+    function logRequestLoan(uint256 reqID_) external onlyFromFactory {
+        emit RequestLoan(msg.sender, address(Cooler(msg.sender).collateral()), address(Cooler(msg.sender).debt()), reqID_);
+    }
 
-        if (ev_ == Events.RequestLoan) {
-            emit RequestLoan(msg.sender, address(Cooler(msg.sender).collateral()), address(Cooler(msg.sender).debt()), id_);
-        } else if (ev_ == Events.RescindRequest) {
-            emit RescindRequest(msg.sender, id_);
-        } else if (ev_ == Events.ClearRequest) {
-            emit ClearRequest(msg.sender, id_);
-        } else if (ev_ == Events.RepayLoan) {
-            emit RepayLoan(msg.sender, id_, amount_);
-        } else if (ev_ == Events.ExtendLoan) {
-            emit ExtendLoan(msg.sender, id_);
-        } else if (ev_ == Events.DefaultLoan) {
-            emit DefaultLoan(msg.sender, id_);
-        }
+    /// @notice Emit a global event when a loan request is rescinded.
+    function logRescindRequest(uint256 reqID_) external onlyFromFactory {
+        emit RescindRequest(msg.sender, reqID_);
+    }
+
+    /// @notice Emit a global event when a loan request is fulfilled.
+    function logClearRequest(uint256 reqID_, uint256 loanID_) external onlyFromFactory {
+        emit ClearRequest(msg.sender, reqID_, loanID_);
+    }
+
+    /// @notice Emit a global event when a loan is repaid.
+    function logRepayLoan(uint256 loanID_, uint256 repayment_) external onlyFromFactory {
+        emit RepayLoan(msg.sender, loanID_, repayment_);
+    }
+
+    /// @notice Emit a global event when a loan is extended.
+    function logExtendLoan(uint256 loanID_, uint8 times_) external onlyFromFactory {
+        emit ExtendLoan(msg.sender, loanID_, times_);
+    }
+
+    /// @notice Emit a global event when the collateral of defaulted loan is claimed.
+    function logDefaultLoan(uint256 loanID_) external onlyFromFactory {
+        emit DefaultLoan(msg.sender, loanID_);
     }
 }
