@@ -352,7 +352,7 @@ contract CoolerTest is Test {
 
         Cooler.Loan memory loan = cooler.getLoan(loanID);
         // check: loan storage
-        assertEq(amount_, loan.principle);
+        assertEq(amount_, loan.principal);
         assertEq(_interestFor(amount_, INTEREST_RATE, DURATION), loan.interestDue);
         assertEq(_collateralFor(amount_), loan.collateral);
         assertEq(block.timestamp + DURATION, loan.expiry);
@@ -380,72 +380,30 @@ contract CoolerTest is Test {
         vm.stopPrank();
         
         // since lender doesn't implement callbacks they are not enabled.
-        (,,,,,,, bool loanCallback) = cooler.loans(loanID);
-        assertEq(false, loanCallback);
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
+        assertEq(false, loan.callback);
     }
 
     function testFuzz_clearRequest_callbackTrue_requesterIsNotLender(uint256 amount_, address recipient_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
-        bool callbackRepay = true;
+        bool callbackRepay = false;
         // test setup
         cooler = _initCooler();
-        vm.startPrank(owner);
-        // aprove collateral so that it can be transferred by cooler
-        collateral.approve(address(cooler), amount_);
-        uint256 reqID = cooler.requestLoan(
-            amount_,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
-        vm.stopPrank();
+        (uint256 reqID, ) = _requestLoan(amount_);
 
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount_);
         uint256 loanID = cooler.clearRequest(reqID, recipient_, callbackRepay);
         vm.stopPrank();
-        
-        // Requester <> Lender: callbacks are not enabled.
-        (,,,,,,, bool loanCallback) = cooler.loans(loanID);
-        assertEq(false, loanCallback);
+
+        // since lender isn't the requester (not trusted) callbacks are not enabled.
+        Cooler.Loan memory loan = cooler.getLoan(loanID);
+        assertEq(false, loan.callback);
     }
 
-    function testFuzz_clearRequest_callbackTrue_requesterIsLender(uint256 amount_, address recipient_) public {
-        // test inputs
-        amount_ = bound(amount_, 0, MAX_DEBT);
-        bool directRepay = true;
-        bool callbackRepay = true;
-        // test setup
-        cooler = _initCooler();
-        MockLender callbackLender = new MockLender(address(coolerFactory));
-        // fund the lender
-        deal(address(debt), address(callbackLender), amount_);
-        // simulate trusted lender by minting collateral to the lender beforehand.
-        deal(address(collateral), address(callbackLender), amount_);
-
-        vm.startPrank(address(callbackLender));
-        // aprove collateral so that it can be transferred by cooler
-        collateral.approve(address(cooler), amount_);
-        uint256 reqID = cooler.requestLoan(
-            amount_,
-            INTEREST_RATE,
-            LOAN_TO_COLLATERAL,
-            DURATION
-        );
-        // aprove debt so that it can be transferred by cooler
-        debt.approve(address(cooler), amount_);
-        uint256 loanID = cooler.clearRequest(reqID, recipient_, callbackRepay);
-        vm.stopPrank();
-        
-        // Requester == Lender: callbacks are not enabled.
-        (,,,,,,, bool loanCallback) = cooler.loans(loanID);
-        assertEq(true, loanCallback);
-    }
-
-    function testRevertFuzz_clear_onlyActive(uint256 amount_) public {
+    function testRevertFuzz_clearRequest_deactivated(uint256 amount_) public {
         // test inputs
         amount_ = bound(amount_, 0, MAX_DEBT);
         bool callbackRepay = false;
@@ -459,7 +417,7 @@ contract CoolerTest is Test {
         vm.startPrank(lender);
         // aprove debt so that it can be transferred by cooler
         debt.approve(address(cooler), amount_);
-        // only possible to rescind active requests
+        // only possible to clear active requests
         vm.expectRevert(Cooler.Deactivated.selector);
         cooler.clearRequest(reqID, lender, callbackRepay);
         vm.stopPrank();
@@ -511,20 +469,20 @@ contract CoolerTest is Test {
 
         // compute rest of initial vaules
         uint256 repaidInterest;
-        uint256 repaidPrinciple;
+        uint256 repaidPrincipal;
         if (repayAmount_ >= initInterest) {
             repaidInterest = initInterest;
-            repaidPrinciple = repayAmount_ - initInterest;
+            repaidPrincipal = repayAmount_ - initInterest;
         } else {
             repaidInterest = repayAmount_;
-            repaidPrinciple = 0;
+            repaidPrincipal = 0;
         }
         
         Cooler.Loan memory loan = cooler.getLoan(loanID);
 
         // check: loan storage
         assertEq(initLoanCollat - decollatAmount, loan.collateral, "outstanding collat");
-        assertEq(amount_ - repaidPrinciple, loan.principle, "outstanding principle debt");
+        assertEq(amount_ - repaidPrincipal, loan.principal, "outstanding principal debt");
         assertEq(initInterest - repaidInterest, loan.interestDue, "outstanding interest debt");
     }
     
@@ -565,25 +523,25 @@ contract CoolerTest is Test {
         // check: debt and collateral balances
         assertEq(debt.balanceOf(owner), initOwnerDebt - repayAmount_, "owner: debt balance");
         assertEq(debt.balanceOf(lender), initLenderDebt, "lender: debt balance");
-        assertEq(debt.balanceOf(others), initOthersDebt + repayAmount_, "lender: debt balance");
+        assertEq(debt.balanceOf(others), initOthersDebt + repayAmount_, "others: debt balance");
         }
 
         // compute rest of initial vaules
         uint256 repaidInterest;
-        uint256 repaidPrinciple;
+        uint256 repaidPrincipal;
         if (repayAmount_ >= initInterest) {
             repaidInterest = initInterest;
-            repaidPrinciple = repayAmount_ - initInterest;
+            repaidPrincipal = repayAmount_ - initInterest;
         } else {
             repaidInterest = repayAmount_;
-            repaidPrinciple = 0;
+            repaidPrincipal = 0;
         }
         
         Cooler.Loan memory loan = cooler.getLoan(loanID);
 
         // check: loan storage
         assertEq(initLoanCollat - decollatAmount, loan.collateral, "outstanding collat");
-        assertEq(amount_ - repaidPrinciple, loan.principle, "outstanding principle debt");
+        assertEq(amount_ - repaidPrincipal, loan.principal, "outstanding principal debt");
         assertEq(initInterest - repaidInterest, loan.interestDue, "outstanding interest debt");
     }
     
@@ -675,7 +633,7 @@ contract CoolerTest is Test {
         
         // check: loan storage
         // - only amount and collateral are cleared
-        assertEq(0, loan.principle);
+        assertEq(0, loan.principal);
         assertEq(0, loan.interestDue);
         assertEq(0, loan.collateral);
         // - the rest of the variables are untouched
@@ -720,7 +678,7 @@ contract CoolerTest is Test {
         Cooler.Loan memory loan2 = cooler.getLoan(loanID2);
         
         // check: loan ID = 1 storage
-        assertEq(0, loan1.principle, "loanAmount1");
+        assertEq(0, loan1.principal, "loanAmount1");
         assertEq(0, loan1.interestDue, "loanInterest1");
         assertEq(0, loan1.collateral, "loanCollat1");
         assertEq(block.timestamp - 1, loan1.expiry, "loanExpiry1");
@@ -729,7 +687,7 @@ contract CoolerTest is Test {
         assertEq(false, loan1.callback, "loanCallback1");
         
         // check: loan ID = 2 storage
-        assertEq(amount2_, loan2.principle, "loanAmount2");
+        assertEq(amount2_, loan2.principal, "loanAmount2");
         assertEq(_interestFor(amount2_, INTEREST_RATE/2, DURATION*2), loan2.interestDue, "loanInterest2");
         assertEq(_collateralFor(amount2_), loan2.collateral, "loanCollat2");
         assertEq(51 * 365 * 24 * 60 * 60 + DURATION * 2, loan2.expiry, "loanExpiry2");

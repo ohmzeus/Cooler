@@ -29,12 +29,12 @@ contract CoolerFactoryTest is Test {
     CoolerFactory internal coolerFactory;
 
     // CoolerFactory Expected events
-    event RequestLoan(address cooler, address collateral, address debt, uint256 reqID);
-    event RescindRequest(address cooler, uint256 reqID);
-    event ClearRequest(address cooler, uint256 reqID);
-    event RepayLoan(address cooler, uint256 loanID, uint256 amount);
-    event ExtendLoan(address cooler, uint256 loanID);
-    event DefaultLoan(address cooler, uint256 loanID);
+    event RequestLoan(address indexed cooler, address collateral, address debt, uint256 reqID);
+    event RescindRequest(address indexed cooler, uint256 reqID);
+    event ClearRequest(address indexed cooler, uint256 reqID, uint256 loanID);
+    event RepayLoan(address indexed cooler, uint256 loanID, uint256 amount);
+    event ExtendLoan(address indexed cooler, uint256 loanID, uint8 times);
+    event DefaultLoan(address indexed cooler, uint256 loanID, uint256 amount);
 
     function setUp() public {
         vm.warp(51 * 365 * 24 * 60 * 60); // Set timestamp at roughly Jan 1, 2021 (51 years since Unix epoch)
@@ -79,7 +79,7 @@ contract CoolerFactoryTest is Test {
         assertEq(otherCoolerBob, coolerFactory.coolersFor(collateral, otherDebt, 0));
     }
 
-    function testRevert_wrongDecimals() public {
+    function testRevert_generateCooler_wrongDecimals() public {
         // Create the wrong tokens
         MockERC20 wrongCollateral = new MockERC20("Collateral", "COL", 6);
         MockERC20 wrongDebt = new MockERC20("Debt", "DEBT", 6);
@@ -101,44 +101,44 @@ contract CoolerFactoryTest is Test {
     function test_newEvent() public {
         uint256 id = 0;
         uint256 amount = 1234;
+        uint8 times = 1;
 
         vm.prank(alice);
         address cooler = coolerFactory.generateCooler(collateral, debt);
 
         vm.startPrank(cooler);
         // Request Event
-        vm.expectEmit(true, true, true, true);
+        vm.expectEmit(address(coolerFactory));
         emit RequestLoan(cooler, address(collateral), address(debt), id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.RequestLoan, amount);
+        coolerFactory.logRequestLoan(id);
         // Rescind Event
-        vm.expectEmit(true, true, false, false);
+        vm.expectEmit(address(coolerFactory));
         emit RescindRequest(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.RescindRequest, amount);
+        coolerFactory.logRescindRequest(id);
         // Clear Event
-        vm.expectEmit(true, true, false, false);
-        emit ClearRequest(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.ClearRequest, amount);
+        vm.expectEmit(address(coolerFactory));
+        emit ClearRequest(cooler, id, id);
+        coolerFactory.logClearRequest(id, id);
         // Repay Event
-        vm.expectEmit(true, true, true, false);
+        vm.expectEmit(address(coolerFactory));
         emit RepayLoan(cooler, id, amount);
-        coolerFactory.newEvent(id, CoolerFactory.Events.RepayLoan, amount);
+        coolerFactory.logRepayLoan(id, amount);
         // Extend Event
-        vm.expectEmit(true, true, false, false);
-        emit ExtendLoan(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.ExtendLoan, amount);
+        vm.expectEmit(address(coolerFactory));
+        emit ExtendLoan(cooler, id, times);
+        coolerFactory.logExtendLoan(id, times);
         // Default Event
-        vm.expectEmit(true, true, false, false);
-        emit DefaultLoan(cooler, id);
-        coolerFactory.newEvent(id, CoolerFactory.Events.DefaultLoan, amount);
+        vm.expectEmit(address(coolerFactory));
+        emit DefaultLoan(cooler, id, amount);
+        coolerFactory.logDefaultLoan(id, amount);
     }
 
-    function testRevert_newEvent() public {
+    function testRevert_newEvent_notFromFactory() public {
         uint256 id = 0;
-        uint256 amount = 1234;
 
         // Only coolers can emit events
         vm.prank(alice);
         vm.expectRevert(CoolerFactory.NotFromFactory.selector);
-        coolerFactory.newEvent(id, CoolerFactory.Events.ClearRequest, amount);
+        coolerFactory.logRequestLoan(id);
     }
 }
