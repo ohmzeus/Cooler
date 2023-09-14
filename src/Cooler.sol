@@ -5,9 +5,9 @@ import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {Clone} from "clones/Clone.sol";
 
-import {IDelegate} from "./interfaces/IDelegate.sol";
-import {CoolerFactory} from "./CoolerFactory.sol";
-import {CoolerCallback} from "./CoolerCallback.sol";
+import {IDelegate} from "src/interfaces/IDelegate.sol";
+import {CoolerFactory} from "src/CoolerFactory.sol";
+import {CoolerCallback} from "src/CoolerCallback.sol";
 
 /// @title  Cooler Loans.
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
@@ -34,6 +34,7 @@ contract Cooler is Clone {
         uint256 loanToCollateral;   // Requested loan-to-collateral ratio.
         uint256 duration;           // Time to repay the loan before it defaults.
         bool active;                // Any lender can clear an active loan request.
+        address requester;          // The address that created the request.
     }
 
     /// @notice A request is converted to a loan when a lender clears it.
@@ -106,7 +107,8 @@ contract Cooler is Clone {
                 interest: interest_,
                 loanToCollateral: loanToCollateral_,
                 duration: duration_,
-                active: true
+                active: true,
+                requester: msg.sender
             })
         );
 
@@ -213,9 +215,13 @@ contract Cooler is Clone {
     ) external returns (uint256 loanID) {
         Request memory req = requests[reqID_];
 
-        // If necessary, ensure lender implements the CoolerCallback abstract.
-        if (isCallback_ && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
+        // Loan callbacks are only allowed if:
+        //  1. The loan request has been created via a trusted lender.
+        //  2. The lender signals that it implements the CoolerCallback Abstract.
+        bool callback = (isCallback_ && msg.sender == req.requester);
 
+        // If necessary, ensure lender implements the CoolerCallback abstract.
+        if (callback && !CoolerCallback(msg.sender).isCoolerCallback()) revert NotCoolerCallback();
         // Ensure loan request is active. 
         if (!req.active) revert Deactivated();
 
@@ -236,7 +242,7 @@ contract Cooler is Clone {
                 expiry: block.timestamp + req.duration,
                 lender: msg.sender,
                 recipient: recipient_,
-                callback: isCallback_
+                callback: callback
             })
         );
 
@@ -277,9 +283,12 @@ contract Cooler is Clone {
     /// @return defaulted debt by the borrower, collateral kept by the lender, elapsed time since expiry.
     function claimDefaulted(uint256 loanID_) external returns (uint256, uint256, uint256, uint256) {
         Loan memory loan = loans[loanID_];
-        delete loans[loanID_];
 
         if (block.timestamp <= loan.expiry) revert NoDefault();
+
+        loans[loanID_].principle = 0;
+        loans[loanID_].interestDue = 0;
+        loans[loanID_].collateral = 0;
 
         // Transfer defaulted collateral to the lender.
         collateral().safeTransfer(loan.lender, loan.collateral);
@@ -312,6 +321,8 @@ contract Cooler is Clone {
         // Update the load lender and the recipient.
         loans[loanID_].lender = msg.sender;
         loans[loanID_].recipient = msg.sender;
+        // Callbacks are disabled when transferring ownership.
+        loans[loanID_].callback = false;
         // Clear transfer approvals.
         approvals[loanID_] = address(0);
     }
@@ -345,10 +356,10 @@ contract Cooler is Clone {
         return (principle_ * interest) / DECIMALS_INTEREST;
     }
 
-    /// @notice Check if given loan is in default.
+    /// @notice Check if given loan has expired.
     /// @param  loanID_ index of loan in loans[].
-    /// @return Defaulted status.
-    function isDefaulted(uint256 loanID_) external view returns (bool) {
+    /// @return Expiration status.
+    function hasExpired(uint256 loanID_) external view returns (bool) {
         return block.timestamp > loans[loanID_].expiry;
     }
 
