@@ -86,8 +86,8 @@ contract ClearinghouseTest is Test {
     uint256 internal initialSDai;
 
     // Clearinghouse Expected events
-    event Defund(address token, int256 amount);
-    event Rebalance(int256 amount);
+    event Defund(address token, uint256 amount);
+    event Rebalance(bool defund, uint256 daiAmount);
     event Deactivate();
     event Reactivate();
 
@@ -280,9 +280,9 @@ contract ClearinghouseTest is Test {
 
         // Check: clearinghouse storage
         assertEq(
-            clearinghouse.principleReceivables(),
-            loan.principle,
-            "principleReceivables (Loan)"
+            clearinghouse.principalReceivables(),
+            loan.principal,
+            "principalReceivables (Loan)"
         );
         assertApproxEqAbs(
             clearinghouse.interestReceivables(),
@@ -298,7 +298,7 @@ contract ClearinghouseTest is Test {
         );
         assertApproxEqAbs(
             clearinghouse.getTotalReceivables(),
-            loan.principle + loan.interestDue,
+            loan.principal + loan.interestDue,
             1e4,
             "getTotalReceivables"
         );
@@ -312,7 +312,7 @@ contract ClearinghouseTest is Test {
         elapsed_ = bound(elapsed_, 0, clearinghouse.DURATION());
         times_ = uint8(bound(times_, 1, 255));
 
-        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
+        (Cooler cooler,, uint256 loanID) = _createLoanForUser(loanAmount_);
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward without defaulting
@@ -323,9 +323,9 @@ contract ClearinghouseTest is Test {
         uint256 initDaiUser = dai.balanceOf(user);
         uint256 initDaiCH = dai.balanceOf(address(clearinghouse));
         uint256 initInterest = clearinghouse.interestReceivables();
-        uint256 initPrinciple = clearinghouse.principleReceivables();
+        uint256 initPrincipal = clearinghouse.principalReceivables();
         // Approve the interest of the extensions
-        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principle, initLoan.request.duration * times_);
+        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principal, initLoan.request.duration * times_);
         dai.approve(address(clearinghouse), interestOwed);
         // Extend loan
         clearinghouse.extendLoan(cooler, loanID, times_);
@@ -337,13 +337,13 @@ contract ClearinghouseTest is Test {
         assertEq(dai.balanceOf(user), initDaiUser - interestOwed, "DAI user");
         assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH + interestOwed, "DAI CH");
         // Check: cooler storage
-        assertEq(extendedLoan.principle, initLoan.principle, "principle");
+        assertEq(extendedLoan.principal, initLoan.principal, "principal");
         assertEq(extendedLoan.interestDue, initLoan.interestDue, "interest");
         assertEq(extendedLoan.collateral, initLoan.collateral, "collateral");
         assertEq(extendedLoan.expiry, initLoan.expiry + initLoan.request.duration * times_, "expiry");
         // Check: clearinghouse storage
         assertEq(clearinghouse.interestReceivables(), initInterest);
-        assertEq(clearinghouse.principleReceivables(), initPrinciple);
+        assertEq(clearinghouse.principalReceivables(), initPrincipal);
     }
 
     function testFuzz_extendLoan_withPriorRepayment(uint256 loanAmount_, uint256 elapsed_, uint8 times_) public {
@@ -352,7 +352,7 @@ contract ClearinghouseTest is Test {
         elapsed_ = bound(elapsed_, 0, clearinghouse.DURATION());
         times_ = uint8(bound(times_, 1, 255));
 
-        (Cooler cooler, uint256 gohmNeeded, uint256 loanID) = _createLoanForUser(loanAmount_);
+        (Cooler cooler,, uint256 loanID) = _createLoanForUser(loanAmount_);
         Cooler.Loan memory initLoan = cooler.getLoan(loanID);
 
         // Move forward without defaulting
@@ -367,9 +367,9 @@ contract ClearinghouseTest is Test {
         uint256 initDaiUser = dai.balanceOf(user);
         uint256 initDaiCH = dai.balanceOf(address(clearinghouse));
         uint256 initInterest = clearinghouse.interestReceivables();
-        uint256 initPrinciple = clearinghouse.principleReceivables();
+        uint256 initPrincipal = clearinghouse.principalReceivables();
         // Approve the interest of the followup extensions
-        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principle, initLoan.request.duration * (times_ - 1));
+        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principal, initLoan.request.duration * (times_ - 1));
         dai.approve(address(clearinghouse), interestOwed);
 
         // Extend loan
@@ -382,13 +382,13 @@ contract ClearinghouseTest is Test {
         assertEq(dai.balanceOf(user), initDaiUser - interestOwed, "DAI user");
         assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH + interestOwed, "DAI CH");
         // Check: cooler storage
-        assertEq(extendedLoan.principle, initLoan.principle, "principle");
+        assertEq(extendedLoan.principal, initLoan.principal, "principal");
         assertEq(extendedLoan.interestDue, initLoan.interestDue, "interest");
         assertEq(extendedLoan.collateral, initLoan.collateral, "collateral");
         assertEq(extendedLoan.expiry, initLoan.expiry + initLoan.request.duration * times_, "expiry");
         // Check: clearinghouse storage
         assertEq(clearinghouse.interestReceivables(), initInterest + extendedLoan.interestDue);
-        assertEq(clearinghouse.principleReceivables(), initPrinciple);
+        assertEq(clearinghouse.principalReceivables(), initPrincipal);
     }
 
     function testRevert_extendLoan_NotLender() public {
@@ -437,7 +437,7 @@ contract ClearinghouseTest is Test {
 
         // Ensure that the event is emitted
         vm.expectEmit(address(clearinghouse));
-        emit Rebalance(int256(sdai.previewWithdraw(oneMillion)));
+        emit Rebalance(false, oneMillion);
         // Rebalance
         clearinghouse.rebalance();
 
@@ -490,7 +490,7 @@ contract ClearinghouseTest is Test {
 
         // Ensure that the event is emitted
         vm.expectEmit(address(clearinghouse));
-        emit Rebalance(- int256(sdai.previewWithdraw(oneMillion)));
+        emit Rebalance(true, oneMillion);
         // Rebalance
         clearinghouse.rebalance();
 
@@ -566,7 +566,7 @@ contract ClearinghouseTest is Test {
 
         // Ensure that the event is emitted
         vm.expectEmit(address(clearinghouse));
-        emit Defund(address(sdai), - int256(sdai.previewRedeem(1e24)));
+        emit Defund(address(sdai), sdai.previewRedeem(1e24));
         // Defund
         vm.prank(overseer);
         clearinghouse.defund(sdai, 1e24);
@@ -644,15 +644,15 @@ contract ClearinghouseTest is Test {
         vm.startPrank(user);
         // Cache clearinghouse receivables
         uint256 initInterest = clearinghouse.interestReceivables();
-        uint256 initPrinciple = clearinghouse.principleReceivables();
+        uint256 initPrincipal = clearinghouse.principalReceivables();
         dai.approve(address(cooler), repayAmount_);
         cooler.repayLoan(loanID, repayAmount_);
 
         // Check: clearinghouse storage
         uint256 repaidInterest = repayAmount_ > initLoan.interestDue ? initLoan.interestDue : repayAmount_;
-        uint256 repaidPrinciple = repayAmount_ - repaidInterest;
+        uint256 repaidPrincipal = repayAmount_ - repaidInterest;
         assertEq(clearinghouse.interestReceivables(), initInterest > repaidInterest ? initInterest - repaidInterest : 0);
-        assertEq(clearinghouse.principleReceivables(), initPrinciple > repaidPrinciple ? initPrinciple - repaidPrinciple : 0);
+        assertEq(clearinghouse.principalReceivables(), initPrincipal > repaidPrincipal ? initPrincipal - repaidPrincipal : 0);
     }
 
     function testRevert_onRepay_notFromFactory() public {
@@ -683,7 +683,7 @@ contract ClearinghouseTest is Test {
         {
         // Cache clearinghouse receivables and TRSRY debt
         uint256 initInterest = clearinghouse.interestReceivables();
-        uint256 initPrinciple = clearinghouse.principleReceivables();
+        uint256 initPrincipal = clearinghouse.principalReceivables();
         uint256 initDebt = TRSRY.reserveDebt(sdai, address(clearinghouse));
 
         // Simulate unstaking outcome after defaults
@@ -702,17 +702,17 @@ contract ClearinghouseTest is Test {
             clearinghouse.claimDefaulted(coolers, ids);
         }
         {
-            uint256 principleDue = initLoan1.principle + initLoan2.principle;
+            uint256 principalDue = initLoan1.principal + initLoan2.principal;
             uint256 interestDue = initLoan1.interestDue + initLoan2.interestDue;
-            uint256 sdaiDebt = sdai.previewDeposit(principleDue);
+            uint256 sdaiDebt = sdai.previewDeposit(principalDue);
             // Check: clearinghouse storage
             assertEq(
                 clearinghouse.interestReceivables(),
                 initInterest > interestDue ? initInterest - interestDue : 0
             );
             assertEq(
-                clearinghouse.principleReceivables(),
-                initPrinciple > principleDue ? initPrinciple - principleDue : 0
+                clearinghouse.principalReceivables(),
+                initPrincipal > principalDue ? initPrincipal - principalDue : 0
             );
             // Check: TRSRY storage
             assertApproxEqAbs(
@@ -818,5 +818,33 @@ contract ClearinghouseTest is Test {
         vm.prank(others);
         vm.expectRevert(Clearinghouse.NotLender.selector);
         clearinghouse.claimDefaulted(coolers, ids);
+    }
+
+    function testFuzz_equivalentAuxiliarFunctions_fromPrincipal(uint256 principal_) public {
+        principal_ = bound(principal_, 0, type(uint256).max / 1e18);
+
+        uint256 collateral = clearinghouse.getCollateralForLoan(principal_);
+        (uint256 principal,) = clearinghouse.getLoanForCollateral(collateral);
+
+        assertApproxEqAbs(
+            principal_,
+            principal,
+            1e4,
+            "small principal"
+        );
+    }
+
+    function testFuzz_equivalentAuxiliarFunctions_fromCollateral(uint256 collateral_) public {
+        collateral_ = bound(collateral_, 0, type(uint256).max / clearinghouse.LOAN_TO_COLLATERAL());
+        
+        (uint256 principal,) = clearinghouse.getLoanForCollateral(collateral_);
+        uint256 collateral = clearinghouse.getCollateralForLoan(principal);
+
+        assertApproxEqAbs(
+            collateral_,
+            collateral,
+            3e3,
+            "small collateral"
+        );
     }
 }

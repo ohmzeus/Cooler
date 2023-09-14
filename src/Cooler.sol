@@ -40,7 +40,7 @@ contract Cooler is Clone {
     /// @notice A request is converted to a loan when a lender clears it.
     struct Loan {
         Request request;        // Loan terms specified in the request.
-        uint256 principle;      // Amount of principle debt owed to the lender.
+        uint256 principal;      // Amount of principal debt owed to the lender.
         uint256 interestDue;    // Interest owed to the lender.
         uint256 collateral;     // Amount of collateral pledged.
         uint256 expiry;         // Time when the loan defaults.
@@ -145,7 +145,7 @@ contract Cooler is Clone {
     /// @dev    Despite a malicious lender could reenter with the callback, the
     ///         usage of `msg.sender` prevents any economical benefit to the
     ///         attacker, since they would be repaying the loan themselves.
-    /// @param  loanID_ index of loan in loans[]
+    /// @param  loanID_ index of loan in loans[].
     /// @param  repayment_ debt tokens to be repaid.
     /// @return collateral given back to the borrower.
     function repayLoan(uint256 loanID_, uint256 repayment_) external returns (uint256) {
@@ -154,10 +154,10 @@ contract Cooler is Clone {
         if (block.timestamp > loan.expiry) revert Default();
 
         // Cap the repayment to the total debt of the loan
-        uint256 totalDebt = loan.principle + loan.interestDue;
+        uint256 totalDebt = loan.principal + loan.interestDue;
         if (repayment_ > totalDebt) repayment_ = totalDebt;
 
-        // Need to repay interest first, then any extra goes to paying down principle.
+        // Need to repay interest first, then any extra goes to paying down principal.
         uint256 interestPaid;
         uint256 remainder;
         if (repayment_ >= loan.interestDue) {
@@ -169,12 +169,12 @@ contract Cooler is Clone {
             interestPaid = repayment_;
         }
 
-        // We pay back only if user has paid back principle. This can be 0.
+        // We pay back only if user has paid back principal. This can be 0.
         uint256 decollateralized;
         if (remainder > 0) {
-            decollateralized = (loan.collateral * remainder) / loan.principle;
+            decollateralized = (loan.collateral * remainder) / loan.principal;
             
-            loan.principle -= remainder;
+            loan.principal -= remainder;
             loan.collateral -= decollateralized;
         }
 
@@ -236,7 +236,7 @@ contract Cooler is Clone {
         loans.push(
             Loan({
                 request: req,
-                principle: req.amount,
+                principal: req.amount,
                 interestDue: interest,
                 collateral: collat,
                 expiry: block.timestamp + req.duration,
@@ -256,7 +256,11 @@ contract Cooler is Clone {
         factory().logClearRequest(reqID_, loanID);
     }
 
-    // Allow lender to extend loan for borrower. Any payments are done by the caller.
+    /// @notice Allow lender to extend a loan for the borrower.
+    /// @dev    Since this function solely impacts the expiration day and resets the interest due,
+    ///         The lender should ensure that repayments are done to them beforehand.
+    /// @param  loanID_ index of loan in loans[].
+    /// @param  times_ that the fixed-term loan duration is extended.
     function extendLoanTerms(uint256 loanID_, uint8 times_) external {
         Loan memory loan = loans[loanID_];
 
@@ -279,14 +283,14 @@ contract Cooler is Clone {
     }
 
     /// @notice Claim collateral upon loan default.
-    /// @param loanID_ index of loan in loans[]
+    /// @param  loanID_ index of loan in loans[].
     /// @return defaulted debt by the borrower, collateral kept by the lender, elapsed time since expiry.
     function claimDefaulted(uint256 loanID_) external returns (uint256, uint256, uint256, uint256) {
         Loan memory loan = loans[loanID_];
 
         if (block.timestamp <= loan.expiry) revert NoDefault();
 
-        loans[loanID_].principle = 0;
+        loans[loanID_].principal = 0;
         loans[loanID_].interestDue = 0;
         loans[loanID_].collateral = 0;
 
@@ -294,13 +298,13 @@ contract Cooler is Clone {
         collateral().safeTransfer(loan.lender, loan.collateral);
 
         // Log the event.
-        factory().logDefaultLoan(loanID_);
+        factory().logDefaultLoan(loanID_, loan.collateral);
 
         // If necessary, trigger lender callback.
         if (loan.callback)
-            CoolerCallback(loan.lender).onDefault(loanID_, loan.principle, loan.interestDue, loan.collateral);
+            CoolerCallback(loan.lender).onDefault(loanID_, loan.principal, loan.interestDue, loan.collateral);
 
-        return (loan.principle, loan.interestDue, loan.collateral, block.timestamp - loan.expiry);
+        return (loan.principal, loan.interestDue, loan.collateral, block.timestamp - loan.expiry);
     }
 
     /// @notice Approve transfer of loan ownership rights to a new address.
@@ -340,20 +344,20 @@ contract Cooler is Clone {
     // --- AUX FUNCTIONS ---------------------------------------------
 
     /// @notice Compute collateral needed for a desired loan amount at given loan to collateral ratio.
-    /// @param  principle_ amount of debt tokens.
+    /// @param  principal_ amount of debt tokens.
     /// @param  loanToCollateral_ ratio for loan. Expressed in 10**collateral().decimals().
-    function collateralFor(uint256 principle_, uint256 loanToCollateral_) public view returns (uint256) {
-        return (principle_ * (10 ** collateral().decimals())) / loanToCollateral_;
+    function collateralFor(uint256 principal_, uint256 loanToCollateral_) public view returns (uint256) {
+        return (principal_ * (10 ** collateral().decimals())) / loanToCollateral_;
     }
 
     /// @notice Compute interest cost on amount for duration at given annualized rate.
-    /// @param  principle_ amount of debt tokens.
+    /// @param  principal_ amount of debt tokens.
     /// @param  rate_ of interest (annualized).
     /// @param  duration_ of the loan in seconds.
     /// @return Interest in debt token terms.
-    function interestFor(uint256 principle_, uint256 rate_, uint256 duration_) public pure returns (uint256) {
+    function interestFor(uint256 principal_, uint256 rate_, uint256 duration_) public pure returns (uint256) {
         uint256 interest = (rate_ * duration_) / 365 days;
-        return (principle_ * interest) / DECIMALS_INTEREST;
+        return (principal_ * interest) / DECIMALS_INTEREST;
     }
 
     /// @notice Check if given loan has expired.

@@ -34,7 +34,7 @@ contract CoolerFactoryTest is Test {
     event ClearRequest(address indexed cooler, uint256 reqID, uint256 loanID);
     event RepayLoan(address indexed cooler, uint256 loanID, uint256 amount);
     event ExtendLoan(address indexed cooler, uint256 loanID, uint8 times);
-    event DefaultLoan(address indexed cooler, uint256 loanID);
+    event DefaultLoan(address indexed cooler, uint256 loanID, uint256 amount);
 
     function setUp() public {
         vm.warp(51 * 365 * 24 * 60 * 60); // Set timestamp at roughly Jan 1, 2021 (51 years since Unix epoch)
@@ -79,7 +79,7 @@ contract CoolerFactoryTest is Test {
         assertEq(otherCoolerBob, coolerFactory.coolersFor(collateral, otherDebt, 0));
     }
 
-    function testRevert_wrongDecimals() public {
+    function testRevert_generateCooler_wrongDecimals() public {
         // Create the wrong tokens
         MockERC20 wrongCollateral = new MockERC20("Collateral", "COL", 6);
         MockERC20 wrongDebt = new MockERC20("Debt", "DEBT", 6);
@@ -129,16 +129,16 @@ contract CoolerFactoryTest is Test {
         coolerFactory.logExtendLoan(id, times);
         // Default Event
         vm.expectEmit(address(coolerFactory));
-        emit DefaultLoan(cooler, id);
-        coolerFactory.logDefaultLoan(id);
+        emit DefaultLoan(cooler, id, amount);
+        coolerFactory.logDefaultLoan(id, amount);
     }
 
-    function testRevert_newEvent() public {
+    function testRevert_newEvent_notFromFactory() public {
         uint256 id = 0;
 
         // Only coolers can emit events
         vm.prank(alice);
-        vm.expectRevert(CoolerFactory.OnlyFromFactory.selector);
+        vm.expectRevert(CoolerFactory.NotFromFactory.selector);
         coolerFactory.logRequestLoan(id);
     }
 }

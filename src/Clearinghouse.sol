@@ -36,15 +36,19 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- EVENTS ----------------------------------------------------
 
-    event Defund(address token, int256 amount);
-    event Rebalance(int256 amount);
+    /// @notice Logs whenever the Clearinghouse is deactivated.
     event Deactivate();
+    /// @notice Logs whenever the Clearinghouse is reactivated.
     event Reactivate();
+    /// @notice Logs whenever the treasury is defunded.
+    event Defund(address token, uint256 amount);
+    /// @notice Logs the balance change (in DAI terms) whenever a rebalance occurs.
+    event Rebalance(bool defund, uint256 daiAmount);
     
     // --- RELEVANT CONTRACTS ----------------------------------------
 
     ERC20 public immutable dai;             // Debt token
-    ERC4626 public immutable sdai;          // Idle DAI will wrapped into sDAI
+    ERC4626 public immutable sdai;          // Idle DAI will be wrapped into sDAI
     ERC20 public immutable gohm;            // Collateral token
     ERC20 public immutable ohm;             // Unwrapped gOHM
     IStaking public immutable staking;      // Necessary to unstake (and burn) OHM from defaults
@@ -75,7 +79,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// Incremented when a loan is taken or rolled.
     /// Decremented when a loan is repaid or collateral is burned.
     uint256 public interestReceivables;
-    uint256 public principleReceivables;
+    uint256 public principalReceivables;
 
     // --- INITIALIZATION --------------------------------------------
 
@@ -154,7 +158,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Increment interest to be expected
         (, uint256 interest) = getLoanForCollateral(collateral);
         interestReceivables += interest;
-        principleReceivables += amount_;
+        principalReceivables += amount_;
 
         // Create a new loan request.
         gohm.approve(address(cooler_), collateral);
@@ -168,7 +172,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         return loanID;
     }
 
-    // Repay current loan interest due then extend loan duration and interest to original terms
+    /// @notice Extend the loan expiry by repaying the extension interest in advance.
+    /// @param  cooler_ holding the loan to be extended.
+    /// @param  loanID_ index of loan in loans[].
+    /// @param  times_ Amount of times that the fixed-term loan duration is extended.
     function extendLoan(Cooler cooler_, uint256 loanID_, uint8 times_) external {
         // Attempt a clearinghouse <> treasury rebalance.
         rebalance();
@@ -181,12 +188,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 interestNew;
         if (loan.interestDue == 0) {
             // If interest has manually been repaid, user only pays for the subsequent extensions.
-            interestNew = interestForLoan(loan.principle, loan.request.duration * (times_ - 1));
+            interestNew = interestForLoan(loan.principal, loan.request.duration * (times_ - 1));
             // Receivables need to be updated.
-            interestReceivables += interestForLoan(loan.principle, loan.request.duration);
+            interestReceivables += interestForLoan(loan.principal, loan.request.duration);
         } else {
             // Otherwise, user pays for all the extensions.
-            interestNew = interestForLoan(loan.principle, loan.request.duration * times_);
+            interestNew = interestForLoan(loan.principal, loan.request.duration * times_);
         }
         // Transfer in extension interest from the caller.
         dai.transferFrom(msg.sender, loan.recipient, interestNew);
@@ -204,7 +211,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         uint256 loans = loans_.length;
         if (loans != coolers_.length) revert LengthDiscrepancy();
 
-        uint256 totalPrinciple;
+        uint256 totalPrincipal;
         uint256 totalInterest;
         uint256 totalCollateral;
         uint256 keeperRewards;
@@ -216,12 +223,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             if (Cooler(coolers_[i]).getLoan(loans_[i]).lender != address(this)) revert NotLender();
             
             // Claim defaults and update cached metrics.
-            (uint256 principle, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
+            (uint256 principal, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
 
             // TODO make sure recievables is updated properly with interest split
             unchecked {
                 // Cannot overflow due to max supply limits for both tokens
-                totalPrinciple += principle;
+                totalPrincipal += principal;
                 totalInterest += interest;
                 totalCollateral += collateral;
                 // There will not exist more than 2**256 loans
@@ -244,7 +251,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Decrement loan receivables.
         interestReceivables = (interestReceivables > totalInterest) ? interestReceivables - totalInterest : 0;
-        principleReceivables = (principleReceivables > totalPrinciple) ? principleReceivables - totalPrinciple : 0;        
+        principalReceivables = (principalReceivables > totalPrincipal) ? principalReceivables - totalPrincipal : 0;        
 
         // Update outstanding debt owed to the Treasury upon default.
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
@@ -253,8 +260,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         TRSRY.setDebt({
             debtor_: address(this),
             token_: dai,
-            amount_: (outstandingDebt > totalPrinciple)
-                ? outstandingDebt - totalPrinciple
+            amount_: (outstandingDebt > totalPrincipal)
+                ? outstandingDebt - totalPrincipal
                 : 0
         });
 
@@ -270,26 +277,26 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     /// @notice Overridden callback to decrement loan receivables.
     /// @param *unused loadID_ of the load.
-    /// @param principlePaid_ in DAI.
-    /// @param interestPaid_ in DAI.
-    function _onRepay(uint256, uint256 principlePaid_, uint256 interestPaid_) internal override {
+    /// @param  principalPaid_ in DAI.
+    /// @param  interestPaid_ in DAI.
+    function _onRepay(uint256, uint256 principalPaid_, uint256 interestPaid_) internal override {
         if (active) {
-            _sweepIntoDSR(principlePaid_ + interestPaid_);
+            _sweepIntoDSR(principalPaid_ + interestPaid_);
         } else {
-            _defund(dai, principlePaid_ + interestPaid_);
+            _defund(dai, principalPaid_ + interestPaid_);
         }
 
         // Decrement loan receivables.
         interestReceivables = (interestReceivables > interestPaid_)
             ? interestReceivables - interestPaid_
             : 0;
-        principleReceivables = (principleReceivables > principlePaid_)
-            ? principleReceivables - principlePaid_
+        principalReceivables = (principalReceivables > principalPaid_)
+            ? principalReceivables - principalPaid_
             : 0;
     }
     
     /// @notice Unused callback since defaults are handled by the clearinghouse.
-    /// @dev Overriden and left empty to save gas.
+    /// @dev    Overriden and left empty to save gas.
     function _onDefault(uint256, uint256, uint256, uint256) internal override {}
 
     // --- FUNDING ---------------------------------------------------
@@ -327,12 +334,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             TRSRY.increaseWithdrawApproval(address(this), sdai, sdaiAmount);
             TRSRY.withdrawReserves(address(this), sdai, sdaiAmount);
 
-            // Log the event.
-            emit Rebalance(int256(sdaiAmount));
-
             // Sweep DAI into DSR if necessary.
             uint256 idle = dai.balanceOf(address(this));
             if (idle != 0) _sweepIntoDSR(idle);
+
+            // Log the event.
+            emit Rebalance(false, fundAmount);
 
         } else if (daiBalance > maxFundAmount) {
             // Since users loans are denominated in DAI, the clearinghouse
@@ -351,7 +358,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             sdai.transfer(address(TRSRY), sdaiAmount);
 
             // Log the event.
-            emit Rebalance(- int256(sdaiAmount));
+            emit Rebalance(true, defundAmount);
         }
 
         return true;
@@ -398,16 +405,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Defund and log the event
         token_.transfer(address(TRSRY), amount_);
-        emit Defund(address(token_), - int256(amount_));
-    }
-
-    /// @notice Burn any gOHM defaulted using the Cooler instead of the Clearinghouse.
-    function burn() external {
-        uint256 gohmBalance = gohm.balanceOf(address(this));
-
-        // Unstake and burn gOHM holdings.
-        gohm.approve(address(staking), gohmBalance);
-        MINTR.burnOhm(address(this), staking.unstake(address(this), gohmBalance, false, false));
+        emit Defund(address(token_), amount_);
     }
 
     /// @notice Burn any gOHM defaulted using the Cooler instead of the Clearinghouse.
@@ -442,34 +440,32 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     // --- AUX FUNCTIONS ---------------------------------------------
-    
-    // TODO Can make test to verify getLoanForCollateral == getCollateralForLoan
 
     /// @notice view function computing collateral for a loan amount.
-    function getCollateralForLoan(uint256 principle_) external pure returns (uint256) {
-        return principle_ * 1e18 / LOAN_TO_COLLATERAL;
+    function getCollateralForLoan(uint256 principal_) external pure returns (uint256) {
+        return principal_ * 1e18 / LOAN_TO_COLLATERAL;
     }
     
     /// @notice view function computing loan for a collateral amount.
     /// @param  collateral_ amount of gOHM.
     /// @return debt (amount to be lent + interest) for a given collateral amount.
     function getLoanForCollateral(uint256 collateral_) public pure returns (uint256, uint256) {
-        uint256 principle = collateral_ * LOAN_TO_COLLATERAL / 1e18;
-        uint256 interest = interestForLoan(principle, DURATION);
-        return (principle, interest);
+        uint256 principal = collateral_ * LOAN_TO_COLLATERAL / 1e18;
+        uint256 interest = interestForLoan(principal, DURATION);
+        return (principal, interest);
     }
 
-    /// @notice view function to compute the interest for given principle amount.
-    /// @param principle_ amount of DAI being lent.
+    /// @notice view function to compute the interest for given principal amount.
+    /// @param principal_ amount of DAI being lent.
     /// @param duration_ elapsed time in seconds.
-    function interestForLoan(uint256 principle_, uint256 duration_) public pure returns (uint256) {
+    function interestForLoan(uint256 principal_, uint256 duration_) public pure returns (uint256) {
         uint256 interestPercent = (INTEREST_RATE * duration_) / 365 days;
-        return principle_ * interestPercent / 1e18;
+        return principal_ * interestPercent / 1e18;
     }
     
     /// @notice Get total receivable DAI for the treasury.
-    ///         Includes both principle and interest.
+    ///         Includes both principal and interest.
     function getTotalReceivables() external view returns (uint256) {
-        return principleReceivables + interestReceivables;
+        return principalReceivables + interestReceivables;
     }
 }

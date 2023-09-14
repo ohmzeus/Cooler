@@ -31,7 +31,7 @@ contract CoolerFactory {
     /// @notice A global event when a loan is extended.
     event ExtendLoan(address indexed cooler, uint256 loanID, uint8 times);
     /// @notice A global event when the collateral of defaulted loan is claimed.
-    event DefaultLoan(address indexed cooler, uint256 loanID);
+    event DefaultLoan(address indexed cooler, uint256 loanID, uint256 amount);
 
     // -- STATE VARIABLES --------------------------------------------
 
@@ -87,7 +87,7 @@ function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (addres
 
     /// @notice Ensure that the called is a Cooler.
     modifier onlyFromFactory {        
-        if (!created[msg.sender]) revert OnlyFromFactory();
+        if (!created[msg.sender]) revert NotFromFactory();
         _;
     }
 
@@ -117,7 +117,7 @@ function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (addres
     }
 
     /// @notice Emit a global event when the collateral of defaulted loan is claimed.
-    function logDefaultLoan(uint256 loanID_) external onlyFromFactory {
-        emit DefaultLoan(msg.sender, loanID_);
+    function logDefaultLoan(uint256 loanID_, uint256 collateral_) external onlyFromFactory {
+        emit DefaultLoan(msg.sender, loanID_, collateral_);
     }
 }
