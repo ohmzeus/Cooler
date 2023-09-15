@@ -711,7 +711,7 @@ contract CoolerTest is Test {
 
         vm.prank(lender);
         // can't default a non-expired loan
-        vm.expectRevert(Cooler.NoDefault.selector);
+        vm.expectRevert(Cooler.NotExpired.selector);
         cooler.claimDefaulted(loanID);
     }
 
@@ -861,6 +861,7 @@ contract CoolerTest is Test {
 
     function testFuzz_extendLoanTerms_severalTimes(uint256 amount_, uint8 times_) public {
         // test inputs
+        times_ = uint8(bound(times_, 1, type(uint8).max));
         amount_ = bound(amount_, 0, MAX_DEBT / 2);
         bool directRepay = true;
         bool callbackRepay = false;
@@ -915,6 +916,22 @@ contract CoolerTest is Test {
         // only extendable by the lender
         vm.expectRevert(Cooler.OnlyApproved.selector);
         cooler.extendLoanTerms(loanID, 1);
+    }
+
+    function testRevertFuzz_extendLoanTerms_zeroTimes(uint256 amount_) public {
+        // test inputs
+        amount_ = bound(amount_, 0, MAX_DEBT);
+        bool directRepay = true;
+        bool callbackRepay = false;
+        // test setup
+        cooler = _initCooler();
+        (uint256 reqID, ) = _requestLoan(amount_);
+        uint256 loanID = _clearLoan(reqID, amount_, directRepay, callbackRepay);
+   
+        vm.prank(lender);
+        // only extendable by the lender
+        vm.expectRevert(Cooler.NotExtension.selector);
+        cooler.extendLoanTerms(loanID, 0);
     }
 
     function testRevertFuzz_extendLoanTerms_defaulted(uint256 amount_) public {
