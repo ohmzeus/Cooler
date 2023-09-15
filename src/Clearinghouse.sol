@@ -186,14 +186,15 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         if (loan.lender != address(this)) revert NotLender();
 
         uint256 interestNew;
-        if (loan.interestDue == 0) {
+        uint256 interestBase = interestForLoan(loan.principal, loan.request.duration);
+        if (loan.interestDue != interestBase) {
             // If interest has manually been repaid, user only pays for the subsequent extensions.
-            interestNew = interestForLoan(loan.principal, loan.request.duration * (times_ - 1));
+            interestNew = interestBase * (times_ - 1) + loan.interestDue;
             // Receivables need to be updated.
-            interestReceivables += interestForLoan(loan.principal, loan.request.duration);
+            interestReceivables += interestBase - loan.interestDue;
         } else {
             // Otherwise, user pays for all the extensions.
-            interestNew = interestForLoan(loan.principal, loan.request.duration * times_);
+            interestNew = interestBase * times_;
         }
         // Transfer in extension interest from the caller.
         dai.transferFrom(msg.sender, loan.recipient, interestNew);
@@ -267,10 +268,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Reward keeper.
         gohm.transfer(msg.sender, keeperRewards);
-
-        // Unstake and burn the collateral of the defaulted loans.
-        gohm.approve(address(staking), totalCollateral - keeperRewards);
-        MINTR.burnOhm(address(this), staking.unstake(address(this), totalCollateral - keeperRewards, false, false));
+        // Burn the outstanding collateral of defaulted loans.
+        burn();
     }
 
     // --- CALLBACKS -----------------------------------------------------
@@ -315,6 +314,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         if (fundTime > block.timestamp) return false;
         fundTime += FUND_CADENCE;
 
+        // Sweep DAI into DSR if necessary.
+        uint256 idle = dai.balanceOf(address(this));
+        if (idle != 0) _sweepIntoDSR(idle);
+
         uint256 daiBalance = sdai.maxWithdraw(address(this));
         uint256 outstandingDebt = TRSRY.reserveDebt(dai, address(this));
         // Rebalance funds on hand with treasury's reserves.
@@ -333,10 +336,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             uint256 sdaiAmount = sdai.previewWithdraw(fundAmount);
             TRSRY.increaseWithdrawApproval(address(this), sdai, sdaiAmount);
             TRSRY.withdrawReserves(address(this), sdai, sdaiAmount);
-
-            // Sweep DAI into DSR if necessary.
-            uint256 idle = dai.balanceOf(address(this));
-            if (idle != 0) _sweepIntoDSR(idle);
 
             // Log the event.
             emit Rebalance(false, fundAmount);
@@ -408,10 +407,10 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         emit Defund(address(token_), amount_);
     }
 
-    /// @notice Burn any gOHM defaulted using the Cooler instead of the Clearinghouse.
-    function burn() external {
+    /// @notice Public function to burn gOHM.
+    /// @dev    Can be used to burn any gOHM defaulted using the Cooler instead of the Clearinghouse.
+    function burn() public {
         uint256 gohmBalance = gohm.balanceOf(address(this));
-
         // Unstake and burn gOHM holdings.
         gohm.approve(address(staking), gohmBalance);
         MINTR.burnOhm(address(this), staking.unstake(address(this), gohmBalance, false, false));
