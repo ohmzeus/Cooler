@@ -226,7 +226,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             // Claim defaults and update cached metrics.
             (uint256 principal, uint256 interest ,uint256 collateral, uint256 elapsed) = Cooler(coolers_[i]).claimDefaulted(loans_[i]);
 
-            // TODO make sure recievables is updated properly with interest split
             unchecked {
                 // Cannot overflow due to max supply limits for both tokens
                 totalPrincipal += principal;
