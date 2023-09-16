@@ -23,7 +23,6 @@ contract Cooler is Clone {
     error Deactivated();
     error Default();
     error NotExpired();
-    error NotExtension();
     error NotCoolerCallback();
 
     // --- DATA STRUCTURES -------------------------------------------
@@ -267,15 +266,9 @@ contract Cooler is Clone {
 
         if (msg.sender != loan.lender) revert OnlyApproved();
         if (block.timestamp > loan.expiry) revert Default();
-        if (times_ == 0) revert NotExtension();
 
         // Update loan terms to reflect the extension.
         loan.expiry += loan.request.duration * times_;
-        loan.interestDue = interestFor(
-            loan.request.amount,
-            loan.request.interest,
-            loan.request.duration
-        );
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;

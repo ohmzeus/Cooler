@@ -185,19 +185,14 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Ensure Clearinghouse is the lender.
         if (loan.lender != address(this)) revert NotLender();
 
-        uint256 interestNew;
         uint256 interestBase = interestForLoan(loan.principal, loan.request.duration);
         if (loan.interestDue != interestBase) {
-            // If interest has manually been repaid, user only pays for the subsequent extensions.
-            interestNew = interestBase * (times_ - 1) + loan.interestDue;
-            // Receivables need to be updated.
+            // If interest has manually been repaid, receivables need to be updated
             interestReceivables += interestBase - loan.interestDue;
-        } else {
-            // Otherwise, user pays for all the extensions.
-            interestNew = interestBase * times_;
         }
+
         // Transfer in extension interest from the caller.
-        dai.transferFrom(msg.sender, loan.recipient, interestNew);
+        dai.transferFrom(msg.sender, loan.recipient, interestBase * times_);
 
         // Signal to cooler that loan can be extended.
         cooler_.extendLoanTerms(loanID_, times_);

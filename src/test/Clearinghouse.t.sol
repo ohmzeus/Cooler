@@ -373,7 +373,7 @@ contract ClearinghouseTest is Test {
         uint256 initInterest = clearinghouse.interestReceivables();
         uint256 initPrincipal = clearinghouse.principalReceivables();
         // Approve the interest of the followup extensions
-        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principal, initLoan.request.duration) * (times_ - 1) + repaidLoan.interestDue;
+        uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principal, initLoan.request.duration) * times_;
         dai.approve(address(clearinghouse), interestOwed);
 
         // Extend loan
@@ -386,12 +386,12 @@ contract ClearinghouseTest is Test {
         assertEq(dai.balanceOf(user), initDaiUser - interestOwed, "DAI user");
         assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH + interestOwed, "DAI CH");
         // Check: cooler storage
-        assertEq(extendedLoan.principal, initLoan.principal, "principal");
-        assertEq(extendedLoan.interestDue, initLoan.interestDue, "interest");
-        assertEq(extendedLoan.collateral, initLoan.collateral, "collateral");
-        assertEq(extendedLoan.expiry, initLoan.expiry + initLoan.request.duration * times_, "expiry");
+        assertEq(extendedLoan.principal, repaidLoan.principal, "principal");
+        assertEq(extendedLoan.interestDue, repaidLoan.interestDue, "interest");
+        assertEq(extendedLoan.collateral, repaidLoan.collateral, "collateral");
+        assertEq(extendedLoan.expiry, repaidLoan.expiry + repaidLoan.request.duration * times_, "expiry");
         // Check: clearinghouse storage
-        assertEq(clearinghouse.interestReceivables(), initInterest + extendedLoan.interestDue - repaidLoan.interestDue);
+        assertEq(clearinghouse.interestReceivables(), initInterest + initLoan.interestDue - repaidLoan.interestDue);
         assertEq(clearinghouse.principalReceivables(), initPrincipal);
     }
 
