@@ -256,9 +256,10 @@ contract Cooler is Clone {
         factory().logClearRequest(reqID_, loanID);
     }
 
-    /// @notice Allow lender to extend a loan for the borrower.
-    /// @dev    Since this function solely impacts the expiration day and resets the interest due,
-    ///         The lender should ensure that repayments are done to them beforehand.
+    /// @notice Allow lender to extend a loan for the borrower. Doesn't require
+    ///         borrower permission because it doesn't have a negative impact for them.
+    /// @dev    Since this function solely impacts the expiration day, the lender
+    ///         should ensure that extension interest payments are done beforehand.
     /// @param  loanID_ index of loan in loans[].
     /// @param  times_ that the fixed-term loan duration is extended.
     function extendLoanTerms(uint256 loanID_, uint8 times_) external {
