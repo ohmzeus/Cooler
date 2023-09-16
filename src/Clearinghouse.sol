@@ -173,6 +173,8 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     }
 
     /// @notice Extend the loan expiry by repaying the extension interest in advance.
+    ///         The extension cost is paid by the caller. If a third-party executes the
+    ///         extension, the loan period is extended, but the borrower debt does not increase.
     /// @param  cooler_ holding the loan to be extended.
     /// @param  loanID_ index of loan in loans[].
     /// @param  times_ Amount of times that the fixed-term loan duration is extended.
@@ -185,7 +187,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
         // Ensure Clearinghouse is the lender.
         if (loan.lender != address(this)) revert NotLender();
 
-        // Calculate extension interest based on remaining principal.
+        // Calculate extension interest based on the remaining principal.
         uint256 interestBase = interestForLoan(loan.principal, loan.request.duration);
         // Transfer in extension interest from the caller.
         dai.transferFrom(msg.sender, loan.recipient, interestBase * times_);
