@@ -391,7 +391,7 @@ contract ClearinghouseTest is Test {
         assertEq(extendedLoan.collateral, repaidLoan.collateral, "collateral");
         assertEq(extendedLoan.expiry, repaidLoan.expiry + repaidLoan.request.duration * times_, "expiry");
         // Check: clearinghouse storage
-        assertEq(clearinghouse.interestReceivables(), initInterest + initLoan.interestDue - repaidLoan.interestDue);
+        assertEq(clearinghouse.interestReceivables(), initInterest);
         assertEq(clearinghouse.principalReceivables(), initPrincipal);
     }
 
