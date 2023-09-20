@@ -345,7 +345,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
             // Since TRSRY holds sDAI, a conversion must be done before
             // sending sDAI back.
             uint256 sdaiAmount = sdai.previewWithdraw(defundAmount);
-            sdai.approve(address(TRSRY), sdaiAmount);
             sdai.transfer(address(TRSRY), sdaiAmount);
 
             // Log the event.
@@ -426,6 +425,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @notice Reactivate the contract.
     function reactivate() external onlyRole("cooler_overseer") {
         active = true;
+        fundTime = block.timestamp;
 
         emit Reactivate();
     }
