@@ -23,7 +23,6 @@ contract Cooler is Clone {
     error Deactivated();
     error Default();
     error NotExpired();
-    error NotExtension();
     error NotCoolerCallback();
 
     // --- DATA STRUCTURES -------------------------------------------
@@ -257,9 +256,10 @@ contract Cooler is Clone {
         factory().logClearRequest(reqID_, loanID);
     }
 
-    /// @notice Allow lender to extend a loan for the borrower.
-    /// @dev    Since this function solely impacts the expiration day and resets the interest due,
-    ///         The lender should ensure that repayments are done to them beforehand.
+    /// @notice Allow lender to extend a loan for the borrower. Doesn't require
+    ///         borrower permission because it doesn't have a negative impact for them.
+    /// @dev    Since this function solely impacts the expiration day, the lender
+    ///         should ensure that extension interest payments are done beforehand.
     /// @param  loanID_ index of loan in loans[].
     /// @param  times_ that the fixed-term loan duration is extended.
     function extendLoanTerms(uint256 loanID_, uint8 times_) external {
@@ -267,15 +267,9 @@ contract Cooler is Clone {
 
         if (msg.sender != loan.lender) revert OnlyApproved();
         if (block.timestamp > loan.expiry) revert Default();
-        if (times_ == 0) revert NotExtension();
 
         // Update loan terms to reflect the extension.
         loan.expiry += loan.request.duration * times_;
-        loan.interestDue = interestFor(
-            loan.request.amount,
-            loan.request.interest,
-            loan.request.duration
-        );
 
         // Save updated loan info in storage.
         loans[loanID_] = loan;
