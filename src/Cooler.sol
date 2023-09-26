@@ -5,9 +5,12 @@ import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {Clone} from "clones/Clone.sol";
 
-import {IDelegate} from "src/interfaces/IDelegate.sol";
-import {CoolerFactory} from "src/CoolerFactory.sol";
-import {CoolerCallback} from "src/CoolerCallback.sol";
+import {CoolerFactory} from "./CoolerFactory.sol";
+import {CoolerCallback} from "./CoolerCallback.sol";
+
+// Function sig taken from gOHM contract
+interface IDelegate { function delegate(address to_) external; }
+
 
 /// @title  Cooler Loans.
 /// @notice A Cooler is a smart contract escrow that facilitates fixed-duration, peer-to-peer
@@ -189,7 +192,9 @@ contract Cooler is Clone {
         factory().logRepayLoan(loanID_, repayment_);
 
         // If necessary, trigger lender callback.
-        if (loan.callback) CoolerCallback(loan.lender).onRepay(loanID_, remainder, interestPaid);
+        if (loan.callback) {
+            CoolerCallback(loan.lender).onRepay(loanID_, remainder, interestPaid);
+        }
 
         return decollateralized;
     }
@@ -297,8 +302,9 @@ contract Cooler is Clone {
         factory().logDefaultLoan(loanID_, loan.collateral);
 
         // If necessary, trigger lender callback.
-        if (loan.callback)
+        if (loan.callback) {
             CoolerCallback(loan.lender).onDefault(loanID_, loan.principal, loan.interestDue, loan.collateral);
+        }
 
         return (loan.principal, loan.interestDue, loan.collateral, block.timestamp - loan.expiry);
     }
