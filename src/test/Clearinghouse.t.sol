@@ -317,15 +317,21 @@ contract ClearinghouseTest is Test {
 
         // Move forward without defaulting
         _skip(elapsed_);
+        // Rebalance to ensure the extension funds will stay in the CH
+        for (uint256 i = 0; i <= elapsed_ / clearinghouse.FUND_CADENCE(); i++) {
+            clearinghouse.rebalance();
+        }
 
         vm.startPrank(user);
         // Cache DAI balance and interest to be paid in the future
         uint256 initDaiUser = dai.balanceOf(user);
         uint256 initDaiCH = dai.balanceOf(address(clearinghouse));
+        uint256 initSdaiCH = sdai.balanceOf(address(clearinghouse));
         uint256 initInterest = clearinghouse.interestReceivables();
         uint256 initPrincipal = clearinghouse.principalReceivables();
         // Approve the interest of the extensions
         uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principal, initLoan.request.duration) * times_;
+        uint256 interestOwedInSdai = sdai.previewDeposit(interestOwed);
         dai.approve(address(clearinghouse), interestOwed);
         // Extend loan
         clearinghouse.extendLoan(cooler, loanID, times_);
@@ -335,7 +341,8 @@ contract ClearinghouseTest is Test {
 
         // Check: balances
         assertEq(dai.balanceOf(user), initDaiUser - interestOwed, "DAI user");
-        assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH + interestOwed, "DAI CH");
+        assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH, "DAI CH");
+        assertEq(sdai.balanceOf(address(clearinghouse)), initSdaiCH + interestOwedInSdai, "sDAI CH");
         // Check: cooler storage
         assertEq(extendedLoan.principal, initLoan.principal, "principal");
         assertEq(extendedLoan.interestDue, initLoan.interestDue, "interest");
@@ -357,6 +364,10 @@ contract ClearinghouseTest is Test {
 
         // Move forward without defaulting
         _skip(elapsed_);
+        // Rebalance to ensure the extension funds will stay in the CH
+        for (uint256 i = 0; i <= elapsed_ / clearinghouse.FUND_CADENCE(); i++) {
+            clearinghouse.rebalance();
+        }
 
         // Bound repayment
         repay_ = bound(elapsed_, 1, initLoan.interestDue);
@@ -370,10 +381,12 @@ contract ClearinghouseTest is Test {
         Cooler.Loan memory repaidLoan = cooler.getLoan(loanID);
         uint256 initDaiUser = dai.balanceOf(user);
         uint256 initDaiCH = dai.balanceOf(address(clearinghouse));
+        uint256 initSdaiCH = sdai.balanceOf(address(clearinghouse));
         uint256 initInterest = clearinghouse.interestReceivables();
         uint256 initPrincipal = clearinghouse.principalReceivables();
         // Approve the interest of the followup extensions
         uint256 interestOwed = clearinghouse.interestForLoan(initLoan.principal, initLoan.request.duration) * times_;
+        uint256 interestOwedInSdai = sdai.previewDeposit(interestOwed);
         dai.approve(address(clearinghouse), interestOwed);
 
         // Extend loan
@@ -384,7 +397,8 @@ contract ClearinghouseTest is Test {
 
         // Check: balances
         assertEq(dai.balanceOf(user), initDaiUser - interestOwed, "DAI user");
-        assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH + interestOwed, "DAI CH");
+        assertEq(dai.balanceOf(address(clearinghouse)), initDaiCH, "DAI CH");
+        assertEq(sdai.balanceOf(address(clearinghouse)), initSdaiCH + interestOwedInSdai, "sDAI CH");
         // Check: cooler storage
         assertEq(extendedLoan.principal, repaidLoan.principal, "principal");
         assertEq(extendedLoan.interestDue, repaidLoan.interestDue, "interest");
@@ -395,7 +409,7 @@ contract ClearinghouseTest is Test {
         assertEq(clearinghouse.principalReceivables(), initPrincipal);
     }
 
-    function testRevert_extendLoan_NotLender() public {
+    function testRevert_extendLoan_NotFromFactory() public {
         CoolerFactory maliciousFactory = new CoolerFactory();
         Cooler maliciousCooler = Cooler(maliciousFactory.generateCooler(gohm, dai));
 
@@ -403,8 +417,8 @@ contract ClearinghouseTest is Test {
         uint256 reqID = maliciousCooler.requestLoan(0, 0, 1, 1);
         uint256 loanID = maliciousCooler.clearRequest(reqID, others, false);
 
-        // Only extendable for loans where the CH is the lender.
-        vm.expectRevert(Clearinghouse.NotLender.selector);
+        // Only extendable for loans that come from the trusted Cooler Factory
+        vm.expectRevert(CoolerCallback.OnlyFromFactory.selector);
         clearinghouse.extendLoan(maliciousCooler, loanID, 1);
     }
 
