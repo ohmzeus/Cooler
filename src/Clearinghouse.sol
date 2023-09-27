@@ -179,7 +179,6 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  loanID_ index of loan in loans[].
     /// @param  times_ Amount of times that the fixed-term loan duration is extended.
     function extendLoan(Cooler cooler_, uint256 loanID_, uint8 times_) external {
-
         Cooler.Loan memory loan = cooler_.getLoan(loanID_);
 
         // Validate that cooler was deployed by the trusted factory.
@@ -187,11 +186,16 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
         // Calculate extension interest based on the remaining principal.
         uint256 interestBase = interestForLoan(loan.principal, loan.request.duration);
+            
         // Transfer in extension interest from the caller.
         dai.transferFrom(msg.sender, address(this), interestBase * times_);
-        _sweepIntoDSR(interestBase * times_);
+        if (active) {
+            _sweepIntoDSR(interestBase * times_);
+        } else {
+            _defund(dai, interestBase * times_);
+        }
 
-        // Signal to cooler that loan can be extended.
+        // Signal to cooler that loan should be extended.
         cooler_.extendLoanTerms(loanID_, times_);
 
         // Attempt a Clearinghouse <> Treasury rebalance.
