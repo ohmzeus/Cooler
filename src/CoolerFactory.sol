@@ -42,8 +42,7 @@ contract CoolerFactory {
     mapping(address => bool) public created;
 
     /// @notice Mapping to prevent duplicate coolers.
-    mapping(address => mapping(ERC20 => mapping(ERC20 => address)))
-        private coolerFor;
+    mapping(address => mapping(ERC20 => mapping(ERC20 => address))) private coolerFor;
 
     /// @notice Mapping to query Coolers for Collateral-Debt pair.
     mapping(ERC20 => mapping(ERC20 => address[])) public coolersFor;
@@ -119,5 +118,12 @@ function generateCooler(ERC20 collateral_, ERC20 debt_) external returns (addres
     /// @notice Emit a global event when the collateral of defaulted loan is claimed.
     function logDefaultLoan(uint256 loanID_, uint256 collateral_) external onlyFromFactory {
         emit DefaultLoan(msg.sender, loanID_, collateral_);
+    }
+
+    // --- AUX FUNCTIONS ---------------------------------------------
+
+    /// @notice Getter function to get an existing cooler for a given user <> collateral <> debt combination.
+    function getCoolerFor(address user_, address collateral_, address debt_) public view returns (address) {
+        return coolerFor[user_][ERC20(collateral_)][ERC20(debt_)];
     }
 }

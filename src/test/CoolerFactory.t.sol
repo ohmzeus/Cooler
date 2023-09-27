@@ -55,6 +55,7 @@ contract CoolerFactoryTest is Test {
     }
 
     // -- CoolerFactory Functions -------------------------------------------------
+
     function test_generateCooler() public {
 
         vm.startPrank(alice);
@@ -140,5 +141,15 @@ contract CoolerFactoryTest is Test {
         vm.prank(alice);
         vm.expectRevert(CoolerFactory.NotFromFactory.selector);
         coolerFactory.logRequestLoan(id);
+    }
+
+    
+    function test_getCoolerFor() public {
+        // Unexistent loans return address(0).
+        assertEq(address(0), coolerFactory.getCoolerFor(alice, address(collateral), address(debt)));
+
+        vm.startPrank(alice);
+        address coolerAlice = coolerFactory.generateCooler(collateral, debt);
+        assertEq(coolerAlice, coolerFactory.getCoolerFor(alice, address(collateral), address(debt)));
     }
 }
