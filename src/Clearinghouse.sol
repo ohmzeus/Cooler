@@ -60,12 +60,12 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
 
     // --- PARAMETER BOUNDS ------------------------------------------
 
-    uint256 public constant INTEREST_RATE = 5e15;               // 0.5% anually
-    uint256 public constant LOAN_TO_COLLATERAL = 3000e18;       // 3,000 DAI/gOHM
-    uint256 public constant DURATION = 121 days;                // Four months
-    uint256 public constant FUND_CADENCE = 7 days;              // One week
-    uint256 public constant FUND_AMOUNT = 18_000_000e18;        // 18 million
-    uint256 public constant MAX_REWARD = 1e17;                  // 0.1 gOHM
+    uint256 public constant INTEREST_RATE = 5e15;             // 0.5% anually
+    uint256 public constant LOAN_TO_COLLATERAL = 289292e16;   // 2,892.92 DAI/gOHM
+    uint256 public constant DURATION = 121 days;              // Four months
+    uint256 public constant FUND_CADENCE = 7 days;            // One week
+    uint256 public constant FUND_AMOUNT = 18_000_000e18;      // 18 million
+    uint256 public constant MAX_REWARD = 1e17;                // 0.1 gOHM
 
     // --- STATE VARIABLES -------------------------------------------
 
@@ -142,7 +142,7 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  amount_ of DAI to lend.
     /// @return the id of the granted loan.
     function lendToCooler(Cooler cooler_, uint256 amount_) external returns (uint256) {
-        // Attempt a clearinghouse <> treasury rebalance.
+        // Attempt a Clearinghouse <> Treasury rebalance.
         rebalance();
 
         // Validate that cooler was deployed by the trusted factory.
@@ -179,20 +179,23 @@ contract Clearinghouse is Policy, RolesConsumer, CoolerCallback {
     /// @param  loanID_ index of loan in loans[].
     /// @param  times_ Amount of times that the fixed-term loan duration is extended.
     function extendLoan(Cooler cooler_, uint256 loanID_, uint8 times_) external {
-        // Attempt a clearinghouse <> treasury rebalance.
-        rebalance();
-
         Cooler.Loan memory loan = cooler_.getLoan(loanID_);
 
-        // Ensure Clearinghouse is the lender.
-        if (loan.lender != address(this)) revert NotLender();
+        // Validate that cooler was deployed by the trusted factory.
+        if (!factory.created(address(cooler_))) revert OnlyFromFactory();
 
         // Calculate extension interest based on the remaining principal.
         uint256 interestBase = interestForLoan(loan.principal, loan.request.duration);
-        // Transfer in extension interest from the caller.
-        dai.transferFrom(msg.sender, loan.recipient, interestBase * times_);
 
-        // Signal to cooler that loan can be extended.
+        // Transfer in extension interest from the caller.
+        dai.transferFrom(msg.sender, address(this), interestBase * times_);
+        if (active) {
+            _sweepIntoDSR(interestBase * times_);
+        } else {
+            _defund(dai, interestBase * times_);
+        }
+
+        // Signal to cooler that loan should be extended.
         cooler_.extendLoanTerms(loanID_, times_);
     }
 
