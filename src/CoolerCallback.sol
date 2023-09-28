@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0;
 
-import {CoolerFactory} from "src/CoolerFactory.sol";
+import {CoolerFactory} from "./CoolerFactory.sol";
 
 /// @notice Allows for debt issuers to execute logic when a loan is repaid, rolled, or defaulted.
 /// @dev    The three callback functions must be implemented if `isCoolerCallback()` is set to true.
